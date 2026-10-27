@@ -1,0 +1,110 @@
+{
+  "version": "1.0",
+  "description": "Fixed labels for SIP continuation discovery engine (Groww). LLM must only use these values.",
+  "fields": {
+    "lifecycle_stage": {
+      "type": "single",
+      "values": [
+        "considering_start",
+        "just_started",
+        "months_2_6",
+        "months_7_12",
+        "paused",
+        "stopped",
+        "payment_failed",
+        "unknown"
+      ],
+      "descriptions": {
+        "considering_start": "Has not started SIP yet; asking whether to start",
+        "just_started": "First weeks or first 1-2 instalments",
+        "months_2_6": "Roughly 2-6 months in; early doubt period",
+        "months_7_12": "7-12 months in",
+        "paused": "Explicitly paused SIP",
+        "stopped": "Cancelled or stopped SIP",
+        "payment_failed": "Debit/mandate/autopay failure",
+        "unknown": "Cannot infer timing"
+      }
+    },
+    "trigger": {
+      "type": "single",
+      "values": [
+        "failed_debit",
+        "mandate_autopay_issue",
+        "cash_crunch",
+        "red_returns",
+        "expectations_not_met",
+        "confusion_metrics",
+        "market_volatility",
+        "life_event",
+        "platform_bug",
+        "fees_charges",
+        "none_obvious",
+        "other"
+      ]
+    },
+    "emotion": {
+      "type": "single",
+      "values": [
+        "anxious",
+        "frustrated",
+        "confused",
+        "indifferent",
+        "hopeful",
+        "angry",
+        "unknown"
+      ]
+    },
+    "behaviour": {
+      "type": "single",
+      "values": [
+        "continued",
+        "paused_sip",
+        "stopped_sip",
+        "reduced_amount",
+        "asked_friend_family",
+        "searched_youtube",
+        "posted_reddit_forum",
+        "switched_platform",
+        "lump_sum_instead",
+        "no_action_mentioned",
+        "other"
+      ]
+    },
+    "segment_hints": {
+      "type": "multi",
+      "values": [
+        "young_22_30",
+        "salaried",
+        "first_job",
+        "small_ticket",
+        "youtube_influenced",
+        "friend_influenced",
+        "first_mf_investor",
+        "experienced_investor",
+        "groww_user",
+        "unknown"
+      ],
+      "separator": "|"
+    },
+    "link_to_lapse": {
+      "type": "single",
+      "values": ["high", "medium", "low", "none"]
+    },
+    "workaround": {
+      "type": "free_text",
+      "max_chars": 200
+    },
+    "unmet_need": {
+      "type": "free_text",
+      "max_chars": 200
+    },
+    "quote": {
+      "type": "free_text",
+      "max_chars": 280
+    },
+    "confidence": {
+      "type": "single",
+      "values": ["high", "medium", "low"]
+    }
+  }
+}

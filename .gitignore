@@ -1,0 +1,7 @@
+
+.env
+discovery-engine/.env
+.DS_Store
+__pycache__/
+.idea/
+.claude/
