@@ -42,6 +42,7 @@ Outputs:
 | `reasoning.py` | Question routing, cause taxonomy, lift, opportunity sizing, evidence pack |
 | `rule_based_narrative.py` | Computed (non-AI) answer |
 | `hypotheses.py` | Tests the two PM problem hypotheses (evidence for / against, mechanism, reframing) |
+| `metric_decomposition.py`, `exports/` | Part 2: 12-month continuation broken into product outcomes, behaviours and leading indicators, sized for all vs first-time investors; run `python3 metric_decomposition.py` to regenerate the slide SVG |
 | `golden_set_eval.py`, `data/golden_set.csv` | Hand-labelled golden set (35 posts, both hypotheses) and engine-vs-human scoring; run `python3 golden_set_eval.py` |
 | `question_guard.py`, `data/question_guard_tests.csv` | Checks each question before answering: declines personal advice, account support, fear/FOMO tactics, off-topic and "how common among all investors" questions, and flags "would this feature help?" questions; run `python3 question_guard.py` |
 | `build_post_dates.py`, `data/post_dates.csv` | Publication date of every corpus post, joined by URL from the source files; rerun after rebuilding the corpus |

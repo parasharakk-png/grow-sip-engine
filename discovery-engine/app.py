@@ -23,6 +23,17 @@ from discovery_analytics import (
 from golden_set_eval import CODEBOOK, evaluate, load_golden, summary_counts, validate
 from hypotheses import build_hypotheses, strength
 from llm_client import make_client, stream_text
+from metric_decomposition import (
+    BRANCHES,
+    METRIC_MECHANICS,
+    RECOVERY,
+    SLIDE_TITLE,
+    branch_sizes,
+    focus_comparison,
+    golden_signals,
+    interview_hypotheses,
+    tree_svg,
+)
 from plain_labels import BRANCH_PLAIN, LAPSE_PLAIN, opportunity_score_plain, plain_branch, plain_trigger
 from question_guard import MESSAGES, GuardResult, classify_question, is_intervention_question, run_guard_tests
 from reasoning import (
@@ -1285,6 +1296,121 @@ def render_overview(df: pd.DataFrame) -> None:
         )
 
 
+def render_decomposition_tab(df: pd.DataFrame) -> None:
+    st.subheader("Metric decomposition: where 12-month SIP continuation breaks")
+    lapse = st.session_state["lapse_rate"] / 100
+    recovery = st.session_state["recovery_rate"] / 100
+    overrides = _overrides_from_state()
+    sizes = branch_sizes(df, lapse, recovery, overrides)
+    focus = focus_comparison(df, lapse, recovery, overrides)
+    a, f = focus["all"], focus["ft"]
+
+    with st.container(border=True):
+        st.markdown(NORTH_STAR)
+        st.markdown("**What the definition implies**\n" + "\n".join(f"- {m}" for m in METRIC_MECHANICS))
+
+    st.markdown("#### 1 · The metric breaks down into five product outcomes")
+    st.markdown(
+        "A first SIP is active at month 12 only if it was **activated**, every instalment **went through** (A), a "
+        "pause or cash squeeze **didn't become a stop** (B), the investor **kept choosing to continue** (C) and "
+        "could **tell it was working** (D) — or a lapse was **recovered** within 30 days."
+    )
+    st.image(tree_svg(sizes, focus, lapse), width="stretch")
+    st.download_button("Download as slide (SVG)", tree_svg(sizes, focus, lapse, title=SLIDE_TITLE),
+                       file_name="metric_decomposition.svg", mime="image/svg+xml")
+
+    st.markdown("#### 2 · Product outcomes, the behaviours behind them, and how to measure them")
+    st.table(
+        pd.DataFrame([{
+            "Branch": b.name if b.code == "0" else f"{b.code} · {b.name}",
+            "Product outcome": b.outcome,
+            "User behaviours that drive it": " · ".join(b.behaviours),
+            "Leading indicator": b.leading,
+            "Groww data to confirm": b.groww_data,
+            "Opportunity areas": ", ".join(OPP_SHORT[c] for c in b.opportunities) or "—",
+        } for b in BRANCHES] + [{
+            "Branch": "Recovery", "Product outcome": RECOVERY[0].split(": ", 1)[1].capitalize(),
+            "User behaviours that drive it": "Notices the lapse · pays the missed instalment · repairs the mandate",
+            "Leading indicator": RECOVERY[1], "Groww data to confirm": "Days from lapse to next successful instalment",
+            "Opportunity areas": OPP_SHORT["payment_reliability"],
+        }]).set_index("Branch"),
+    )
+
+    st.markdown("#### 3 · Where the lapse comes from: all investors vs first-time investors")
+    st.markdown(
+        f"Each branch's share of the assumed **{lapse * 100:.0f}% of first SIPs that lapse by month 12**, split by "
+        "the primary cause of posts about stopping."
+    )
+    sized = sizes[sizes["code"] != "0"]
+    groups = [f"All investors (n={a['risk_n']})", f"First-time / young (n={f['risk_n']})"]
+    long = pd.concat([
+        pd.DataFrame({"Branch": sized["Branch"], "Group": groups[0], "pp": sized["lost_pp_all"]}),
+        pd.DataFrame({"Branch": sized["Branch"], "Group": groups[1], "pp": sized["lost_pp_ft"]}),
+    ])
+    long["label"] = long["pp"].map(lambda v: f"{v:.1f} pp")
+    base = alt.Chart(long).encode(
+        y=alt.Y("Branch:N", sort=sized["Branch"].tolist(), title=None, axis=alt.Axis(labelLimit=260, labelFontSize=13)),
+        yOffset=alt.YOffset("Group:N", sort=groups),
+        x=alt.X("pp:Q", title=f"Percentage points of the {lapse * 100:.0f}% lapse", axis=alt.Axis(grid=False),
+                scale=alt.Scale(domain=[0, float(long["pp"].max()) * 1.12])),
+        color=alt.Color("Group:N", sort=groups, scale=alt.Scale(domain=groups, range=[CB_BLUE, CB_ORANGE]),
+                        legend=alt.Legend(orient="top", title=None, labelFontSize=13)),
+        tooltip=["Branch:N", "Group:N", alt.Tooltip("pp:Q", title="pp of the lapse", format=".1f")],
+    )
+    chart = base.mark_bar(cornerRadiusEnd=3) + base.mark_text(align="left", dx=4, fontSize=12).encode(text="label:N")
+    st.altair_chart(chart.properties(height=80 * len(sized)), use_container_width=True)
+    table_view(sized.rename(columns={
+        "pct_stop_all": "% of stop posts (all)", "pct_stop_ft": "% of stop posts (first-time)",
+        "lost_pp_all": "pp of lapse (all)", "lost_pp_ft": "pp of lapse (first-time)",
+        "uplift_all": "Est. uplift pp (all)", "uplift_ft": "Est. uplift pp (first-time)",
+    })[["Branch", "% of stop posts (all)", "% of stop posts (first-time)", "pp of lapse (all)",
+        "pp of lapse (first-time)", "Est. uplift pp (all)", "Est. uplift pp (first-time)"]])
+    if f["risk_n"] < SMALL_SAMPLE:
+        st.warning(
+            f"**Small sample:** only {f['risk_n']} posts about stopping come from first-time / young investors "
+            "(they mostly post about starting). The first-time split is a hypothesis for interviews and Groww "
+            "cohort data, not a measurement."
+        )
+
+    st.markdown("#### 4 · Where the highest-potential opportunity lies")
+    c1, c2 = st.columns(2)
+    with c1.container(border=True):
+        st.markdown("**A · Payment & mandate reliability**")
+        m1, m2 = st.columns(2)
+        m1.metric("Est. uplift, all investors", f"+{a['payment']:.2f} pp")
+        m2.metric("First-time / young", f"+{f['payment']:.2f} pp")
+        st.markdown(
+            f"- Largest single cause overall: {a['payment_pct']:.0f}% of posts about stopping, but "
+            f"{f['payment_pct']:.0f}% among first-time / young investors.\n"
+            "- Mostly a payments-and-operations fix (retries, mandate repair, failure reasons); AI adds little.\n"
+            "- **Decision: parallel track.** Probe it in every interview; size it with Groww debit-return data."
+        )
+    with c2.container(border=True):
+        st.markdown("**B + C · The stop moment** (pause, reduce, skip, stop or switch)")
+        m1, m2 = st.columns(2)
+        m1.metric("Est. uplift, all investors", f"+{a['stop_moment']:.2f} pp")
+        m2.metric("First-time / young", f"+{f['stop_moment']:.2f} pp")
+        st.markdown(
+            f"- Four opportunity areas meet on one screen — when the investor opens the pause / stop controls: "
+            f"{a['stop_moment_pct']:.0f}% of posts about stopping overall, {f['stop_moment_pct']:.0f}% among "
+            "first-time / young investors.\n"
+            "- The decision needs the investor's own context (goal, horizon, what is normal) explained neutrally — "
+            "where an AI feature can earn its place without giving advice.\n"
+            "- **Decision: research and MVP focus** (refined Problem 2)."
+        )
+    st.info(
+        f"**Why the stop moment over the bigger number:** the goal metric counts *first-time* investors. Payment "
+        f"failure leads across all posts (+{a['payment']:.1f} vs +{a['stop_moment']:.1f} pp), but in first-time "
+        f"investors' own posts the stop moment leads (+{f['stop_moment']:.1f} vs +{f['payment']:.1f} pp). Both "
+        "numbers rest on public posts and editable assumptions, so the interviews must confirm the first-time mix "
+        "before it drives the build."
+    )
+
+    st.markdown("#### 5 · What the interviews must confirm or overturn")
+    st.table(interview_hypotheses(golden_signals()).set_index("Branch").rename_axis(None))
+    st.caption("Sizes use the lapse and recovery assumptions in Opportunity sizing → Assumptions; edit them there.")
+
+
 def _quote_list(quotes: list[dict[str, str]]) -> None:
     for q in quotes:
         group = "first-time / young" if q["group"] == COHORT_TARGET else "other investor"
@@ -1496,19 +1622,25 @@ def render_problem_validation_tab(df: pd.DataFrame) -> None:
             {"Problem": "1 · Mandate / payment failure", "Evidence strength": strength(m["area_n"]),
              "Share of posts about stopping": f"{m['pct_risk']}%", "Among continuers": f"{m['pct_cont']}%",
              "Est. uplift": f"+{m['opp']['uplift']} pp", "First-timer voice": "Low (mostly other investors)",
-             "My original cause": "Not supported yet — validate", "Decision": "Priority 1"},
+             "My original cause": "Not supported yet — validate", "Decision": "Parallel track (probe in interviews)"},
             {"Problem": "2 · Panic stop in a market fall", "Evidence strength": strength(p["fall_n"]),
              "Share of posts about stopping": f"{p['opp']['pct_risk']}%", "Among continuers": f"{p['opp']['pct_cont']}%",
              "Est. uplift": f"+{p['opp']['uplift']} pp", "First-timer voice": "High",
-             "My original cause": "Partly — doubt, not panic alone", "Decision": "Priority 2 (redesigned)"},
+             "My original cause": "Partly — doubt, not panic alone",
+             "Decision": "Research & MVP focus (redesigned as the stop moment)"},
         ]),
         hide_index=True, width="stretch",
     )
+    focus = focus_comparison(df, st.session_state["lapse_rate"] / 100, st.session_state["recovery_rate"] / 100,
+                             _overrides_from_state())
     st.success(
-        f"**Conclusion:** fix mandate failures first — they are the largest, most fixable cause of SIPs ending "
-        f"({m['pct_risk']}% of posts about stopping vs {m['pct_cont']}% of continuers, est. +{m['opp']['uplift']} pp). "
-        "Then address market-fall doubt for first-timers with a neutral stop-moment sheet instead of fund-level "
-        "social proof. Both refined problems go into user interviews and Groww data checks before build."
+        f"**Conclusion:** mandate failures are the largest cause of SIPs ending across all posts "
+        f"({m['pct_risk']}% of posts about stopping vs {m['pct_cont']}% of continuers, est. +{m['opp']['uplift']} pp), "
+        "but they come mostly from experienced investors. In first-time / young investors' own posts, the stop "
+        f"moment — doubt, switching, cash squeeze — leads (+{focus['ft']['stop_moment']:.1f} vs "
+        f"+{focus['ft']['payment']:.1f} pp, small sample). So the research and MVP focus on a neutral stop-moment "
+        "sheet instead of fund-level social proof, with mandate failure as a parallel payments track. See "
+        "**Metric decomposition**."
     )
 
 
@@ -1527,22 +1659,24 @@ def main() -> None:
     render_sidebar(df)
 
     tabs = st.tabs(
-        ["Overview", "Problem validation", "Ask the engine", "Opportunity sizing", "Evidence & validation",
-         "Evidence explorer", "How it works"]
+        ["Overview", "Metric decomposition", "Problem validation", "Ask the engine", "Opportunity sizing",
+         "Evidence & validation", "Evidence explorer", "How it works"]
     )
     with tabs[0]:
         render_overview(df)
     with tabs[1]:
-        render_problem_validation_tab(df)
+        render_decomposition_tab(df)
     with tabs[2]:
-        render_discovery_tab(df)
+        render_problem_validation_tab(df)
     with tabs[3]:
-        render_opportunity_tab(df)
+        render_discovery_tab(df)
     with tabs[4]:
-        render_evidence_log(df)
+        render_opportunity_tab(df)
     with tabs[5]:
-        render_browse_tab(df)
+        render_evidence_log(df)
     with tabs[6]:
+        render_browse_tab(df)
+    with tabs[7]:
         render_workflow_tab()
 
 
