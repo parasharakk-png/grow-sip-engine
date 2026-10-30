@@ -5,3 +5,6 @@ discovery-engine/.env
 __pycache__/
 .idea/
 .claude/
+user-research/private/
+user-research/recordings/
+.streamlit/secrets.toml
