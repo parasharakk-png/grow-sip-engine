@@ -6,7 +6,7 @@ from typing import Any
 
 import pandas as pd
 
-from reasoning import STOP_CLASSES, STOP_REASONS
+from reasoning import SMALL_SAMPLE, STOP_CLASSES, STOP_REASONS
 
 HYPOTHESES: dict[str, tuple[str, str]] = {
     "payment_reliability": (
@@ -143,19 +143,15 @@ def _focus_reasoning(a: dict[str, Any], f: dict[str, Any]) -> list[str]:
     return lines
 
 
-def reasoned_narrative(a: dict[str, Any]) -> str:
+def _answer_lines(a: dict[str, Any]) -> list[str]:
     intent = a["intent"]
     n = a["pop_n"]
-    if n == 0:
-        return "No posts match this question. Try wording it around stopping, pausing, payments, checking returns or starting."
-
-    prof: pd.DataFrame = a["profile"]
-    top = prof[prof["Posts"] > 0].head(4)
+    top = a["profile"][a["profile"]["Posts"] > 0].head(4)
     is_stop_lens = intent.lens is STOP_REASONS
     base_label = intent.base
     focus = a["focus"]
-    lines: list[str] = ["### Answer"]
-
+    needs: pd.DataFrame = a["needs"]
+    lines: list[str] = []
     if a["action_n"]:
         lines.append(f"*Looking at the {a['action_n']} posts about {ACTION_LABEL[a['action']]}.*")
     elif a["action"] and is_stop_lens:
@@ -164,9 +160,7 @@ def reasoned_narrative(a: dict[str, Any]) -> str:
             f"analyse on their own, which is itself a finding: people rarely mention this option. "
             f"Below is the wider group of {n} at-risk posts."
         )
-    needs: pd.DataFrame = a["needs"]
-    needs_mode = intent.code == "needs" and not needs.empty and not focus
-    if needs_mode:
+    if _needs_mode(a):
         lines.append(
             f"Across {n} at-risk posts that state an unmet need, the most common needs are "
             + "; ".join(f"**{r['Need theme'].lower()}** ({r['% of stated needs']}%)" for _, r in needs.head(3).iterrows())
@@ -211,6 +205,32 @@ def reasoned_narrative(a: dict[str, Any]) -> str:
         if not lifted.empty and lifted.iloc[0]["Lift"] >= 1.2:
             t = lifted.iloc[0]
             lines.append(f"Most specific to this group: **{t['Theme'].lower()}** ({t['Lift']}× vs {base_label}).")
+    return lines
+
+
+def _needs_mode(a: dict[str, Any]) -> bool:
+    return a["intent"].code == "needs" and not a["needs"].empty and not a["focus"]
+
+
+def _ranked_opportunities(a: dict[str, Any]) -> pd.DataFrame:
+    opps: pd.DataFrame = a["opportunities"]
+    relevant = opps[opps["Relevant to question"]]
+    return (relevant if not relevant.empty else opps).head(2 if a["focus"] else 3)
+
+
+def reasoned_narrative(a: dict[str, Any]) -> str:
+    intent = a["intent"]
+    n = a["pop_n"]
+    if n == 0:
+        return "No posts match this question. Try wording it around stopping, pausing, payments, checking returns or starting."
+
+    prof: pd.DataFrame = a["profile"]
+    top = prof[prof["Posts"] > 0].head(4)
+    base_label = intent.base
+    focus = a["focus"]
+    needs: pd.DataFrame = a["needs"]
+    needs_mode = _needs_mode(a)
+    lines: list[str] = ["### Answer", *_answer_lines(a)]
 
     lines += ["", "### Reasoning"]
     if needs_mode:
@@ -250,9 +270,7 @@ def reasoned_narrative(a: dict[str, Any]) -> str:
     if intent.code == "contrast" or (not focus and intent.code in ("stop", "needs")):
         lines += _separators_section(a)
 
-    opps: pd.DataFrame = a["opportunities"]
-    relevant = opps[opps["Relevant to question"]]
-    ranked = (relevant if not relevant.empty else opps).head(2 if focus else 3)
+    ranked = _ranked_opportunities(a)
     lines.append("### What it means for the 12-month metric")
     for i, (_, o) in enumerate(ranked.iterrows(), start=1):
         lines.append(
@@ -273,6 +291,83 @@ def reasoned_narrative(a: dict[str, Any]) -> str:
         f"{a['first_timer_n']} posts are tagged first-time investors.{weak} Treat sizes as directional."
     )
     return "\n".join(lines)
+
+
+def _short_contrast(p_group: float, p_cont: float, stop_lens: bool = True) -> str:
+    if not stop_lens:
+        return f"{p_cont}% among investors who continued"
+    if p_cont <= 0 < p_group:
+        return "almost absent among continuers (strong separator)"
+    if p_group >= 1.5 * p_cont:
+        return f"only {p_cont}% among continuers (separates drop-offs)"
+    if p_cont >= p_group:
+        return f"{p_cont}% among continuers (does not predict stopping alone)"
+    return f"{p_cont}% among continuers (weak separator)"
+
+
+def _n_label(n: int) -> str:
+    return f"(n={n}, small sample)" if n < SMALL_SAMPLE else f"(n={n})"
+
+
+def _evidence_link(a: dict[str, Any], code: str) -> str:
+    ev = a["evidence"].get(code, [])[:1] or a.get("relevant_posts", [])[:1]
+    return f" [#{ev[0]['id']}]({ev[0]['url']})" if ev and ev[0].get("url") else ""
+
+
+def reasoned_summary(a: dict[str, Any]) -> dict[str, Any]:
+    """Short version of the computed answer: answer, up to 3 reasons, 1 opportunity, 2 checks."""
+    why: list[str] = []
+    if _needs_mode(a):
+        for _, r in a["needs"].head(3).iterrows():
+            why.append(f"**{r['Need theme']}**: {r['% of stated needs']}% of stated needs ({r['Posts']} posts).")
+    elif a["focus"]:
+        for f in a["focus"][:3]:
+            why.append(
+                f"**{f['label']}** {_n_label(f['in_group'])}: {f['share_of_at_risk']}% of at-risk posts; "
+                f"{_short_contrast(f['share_of_at_risk'], f['share_of_continuers'])}.{_evidence_link(a, f['code'])}"
+            )
+        f = a["focus"][0]
+        if len(a["focus"]) == 1 and f["co_occurring"]:
+            label, _, pct = f["co_occurring"][0]
+            why.append(f"**Underlying cause**: {pct}% of these posts also talk about {label.lower()}.")
+        if len(a["focus"]) == 1 and f["stop_kind"]:
+            kind, n_kind = max(f["stop_kind"].items(), key=lambda x: x[1])
+            why.append(
+                f"**Kind of stop**: mostly {STOP_CLASSES[kind][0].lower()} ({n_kind} of {f['in_group']} posts)."
+            )
+    else:
+        stop_lens = a["intent"].lens is STOP_REASONS
+        top = a["profile"][a["profile"]["Posts"] > 0].head(3)
+        for _, r in top.iterrows():
+            why.append(
+                f"**{r['Theme']}** {_n_label(int(r['Posts']))}: {r['% of group']}% of the group; "
+                f"{_short_contrast(r['% of group'], r['% among continuers'], stop_lens)}.{_evidence_link(a, r['code'])}"
+            )
+
+    ranked = _ranked_opportunities(a)
+    metric, validate, uplift = "", [], None
+    if not ranked.empty:
+        o = ranked.iloc[0]
+        uplift = o["Est. uplift (pp)"]
+        metric = (
+            f"**{o['Opportunity']}**: about **+{uplift} pp** under current assumptions "
+            f"({o['Evidence posts']} at-risk posts, {str(o['Confidence']).lower()} confidence). {o['Product direction']}"
+        )
+        h = HYPOTHESES.get(o["code"])
+        if h:
+            validate.append(f"{h[0]} *{h[1]}*")
+    reddit = a["source_mix"].get("Reddit", 0)
+    validate.append(
+        f"Data limitation: {reddit}% of this group is Reddit and only {a['first_timer_n']} posts are tagged "
+        "first-time investors, so treat sizes as directional."
+    )
+    return {
+        "answer": " ".join(line for line in _answer_lines(a) if line.strip()),
+        "why": why,
+        "metric": metric,
+        "validate": validate,
+        "uplift": uplift,
+    }
 
 
 def _separators_section(a: dict[str, Any]) -> list[str]:

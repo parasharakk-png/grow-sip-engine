@@ -205,6 +205,8 @@ class Opportunity:
     severity: float
     addressability: float
     product_direction: str
+    business_metric: str
+    experiment: str
 
 
 OPPORTUNITIES: list[Opportunity] = [
@@ -213,12 +215,17 @@ OPPORTUNITIES: list[Opportunity] = [
         ("involuntary_system",), "A — Involuntary lapse",
         0.9, 0.9,
         "Detect failed / revoked mandates instantly; one-tap retry or mandate repair; plain reason for the failure.",
+        "Failed-instalment recovery within 7 days; share of SIP lapses preceded by a failed debit.",
+        "Show the failure reason with a one-tap 'pay now / repair mandate' for half of failed instalments; compare "
+        "recovery within 7 days and active SIPs after two cycles.",
     ),
     Opportunity(
         "control_clarity", "Pause / skip / resume controls that behave as expected",
         ("control_friction",), "B — Pause becomes stop",
         0.7, 0.9,
         "Clear pause vs stop vs skip; auto-resume date with reminder; status that matches the AMC.",
+        "Share of paused SIPs that resume on time; support contacts about SIP status.",
+        "Add an auto-resume date and reminder to the pause flow for half of users; compare the resume rate 90 days later.",
     ),
     Opportunity(
         "switch_without_gap", "Change fund or platform without a gap",
@@ -226,6 +233,8 @@ OPPORTUNITIES: list[Opportunity] = [
         0.5, 0.7,
         "Treat 'stop + start another' as one flow (no fund recommendation): keep the instalment date, "
         "confirm the new SIP before cancelling the old one; guided next step when an AMC suspends.",
+        "Share of cancellations followed by a new SIP within 30 days; days without an active SIP after a switch.",
+        "Offer 'start the new SIP first' inside the cancel flow for half of users; compare the 30-day restart rate.",
     ),
     Opportunity(
         "decision_support", "Neutral support at the 'should I stop?' moment",
@@ -233,20 +242,30 @@ OPPORTUNITIES: list[Opportunity] = [
         0.8, 0.5,
         "At cancel: recap the user's own goal and horizon, show what stopping changes, offer pause/reduce. "
         "Informative only — no advice, no fear or urgency.",
+        "Share of stop intents that become reduce / skip / continue; cancellations in the 2 weeks after a market fall.",
+        "Show a neutral 'before you stop' sheet (own goal, horizon, alternatives) to half of users who tap Stop SIP; "
+        "compare completed cancellations and 90-day active SIPs.",
     ),
     Opportunity(
         "understandability", "'Is my SIP working?' in plain language",
         ("confusion",), "D — Confusion drift",
         0.5, 0.8,
         "Explain XIRR / NAV / units in context; show progress against the user's own plan, not market noise.",
+        "Returns-related support contacts; first-year stop rate.",
+        "Show an in-context explainer when a holding's return first turns negative; compare the first-year stop rate.",
     ),
     Opportunity(
         "cash_flexibility", "Cash-flow flexibility",
         ("cash_or_goal",), "B — Pause becomes stop",
         0.7, 0.6,
         "Skip a month, lower the amount or move the date instead of cancelling.",
+        "Share of cancellations that used skip / reduce first; 12-month active-SIP rate.",
+        "Put skip, reduce and change-date at the top of the cancel flow for half of users; compare cancellations.",
     ),
 ]
+
+SMALL_SAMPLE = 30
+MIN_EVIDENCE = 3
 
 FIRST_TIMER_SEGMENTS = ("first_mf_investor", "young_22_30", "first_job", "small_ticket")
 
@@ -336,7 +355,7 @@ class Intent:
 # Keywords are regexes matched at a word start; ties go to the earlier intent.
 INTENTS: list[Intent] = [
     Intent("segment", "How patterns differ by segment",
-           ("segment", "age", "income", "salar", "young", "first[- ]time", "influenc", "student", "differ"),
+           ("segment", "age", "income", "salaried", "young", "first[- ]time", "influenc", "student", "differ"),
            STOP_REASONS, "at-risk posts, split into first-time vs other investors"),
     Intent("contrast", "What separates continuers from drop-offs",
            ("continu", "separate", "stay", "retain", "keep going", "versus", "vs"),
@@ -345,7 +364,9 @@ INTENTS: list[Intent] = [
            ("stop", "pause", "cancel", "quit", "lapse", "drop", "discontinu", "exit", "halt", "skip", "leave"),
            STOP_REASONS, "posts about stopping, pausing, lapsing or a high link to lapse"),
     Intent("payment", "Payment and mandate failures",
-           ("mandate", "autopay", "debit", "payment", "fail", "bounce", "declin", "reject"),
+           ("mandate", "autopay", "debit", "payment", "fail", "bounce", "declin", "reject", "salary account",
+            "bank account", "new (salary |bank )?account", "account chang", r"chang\w* (\w+ )?(job|bank|account)",
+            r"job chang", r"(new|switch\w*|chang\w*) bank"),
            STOP_REASONS, "posts about failed debits, mandates or system cancellations"),
     Intent("journey", "How behaviour changes after starting",
            ("months after", "over time", r"behaviou?r", "after starting", "first year", "journey", "lifecycle"),
@@ -367,6 +388,20 @@ INTENTS: list[Intent] = [
            ("unmet", "need", "wish", "want", "missing", "gap", "opportunit"),
            STOP_REASONS, "at-risk posts with a stated unmet need"),
 ]
+
+
+SCOPE_TERMS = re.compile(
+    r"\b(sips?|mutual|funds?|mf|invest\w*|mandate|auto-?pay|auto-?debit|debit|instal\w*|nav|xirr|cagr|returns?"
+    r"|market|portfolio|groww|app|bank|salary|money|saving\w*|wealth|equity|index|elss|kyc|redeem\w*|payment\w*"
+    r"|stop\w*|paus\w*|cancel\w*|laps\w*|start\w*|continu\w*|drop|churn|retention|first[- ]time|beginner|panic|crash"
+    r"|fall\w*|confus\w*|statement|platform|ui|features?|unmet)\b",
+    re.I,
+)
+
+
+def is_in_scope(question: str) -> bool:
+    """The corpus only covers SIP / mutual fund investing behaviour; anything else must not be answered from it."""
+    return bool(SCOPE_TERMS.search(question))
 
 
 def route_question(question: str) -> Intent:
@@ -451,6 +486,14 @@ ACTION_FOCUS: dict[str, tuple[tuple[str, ...], tuple[str, ...], str]] = {
 
 HYPOTHESIS_START = re.compile(r"^\s*(do|does|did|is|are|was|were|can|could|will|would|has|have)\b", re.I)
 
+# A job or bank change breaks the debit mandate; it is a payment question, not a cash-need question.
+ACCOUNT_CHANGE = re.compile(
+    r"salary account|bank account|new (salary |bank )?account|account chang|job chang|chang\w* (\w+ )?(job|bank|account)"
+    r"|(new|switch\w*|chang\w*) bank|new job",
+    re.I,
+)
+CASH_NEED = re.compile(r"afford|emergency|loan|lost (my |a |their )?job|job loss|laid off|expense|cash", re.I)
+
 
 def detect_focus(question: str) -> tuple[list[str], str | None, bool]:
     q = question.lower()
@@ -458,6 +501,13 @@ def detect_focus(question: str) -> tuple[list[str], str | None, bool]:
         code for code, aliases in FOCUS_ALIASES.items()
         if any(re.search(rf"\b{a}", q) for a in aliases)
     ]
+    if ACCOUNT_CHANGE.search(q):
+        themes = ["involuntary_system"] + [
+            t for t in themes
+            if t != "involuntary_system"
+            and (t != "cash_or_goal" or CASH_NEED.search(q))
+            and (t != "fund_switch" or re.search(r"switch\w* (to|from|fund|sip|plan)", q))
+        ]
     named = [
         code for code, (aliases, _, _) in ACTION_FOCUS.items()
         if any(re.search(rf"\b{a}", q) for a in aliases)
@@ -711,6 +761,7 @@ def opportunity_table(
             "Evidence posts": n,
             "share": n / n_risk if n_risk else 0.0,
             "% of at-risk posts": _pct(n, n_risk),
+            "Mentioned in at-risk %": p_risk_any,
             "Lift vs all posts": _lift(p_risk_any, p_all_any),
             "% among continuers": p_cont_any,
             "First-timer share %": _pct(int(ev["is_first_timer"].sum()), n),
@@ -718,6 +769,9 @@ def opportunity_table(
             "Addressability": addr,
             "Confidence": confidence,
             "Product direction": o.product_direction,
+            "Business metric": o.business_metric,
+            "Experiment": o.experiment,
+            "Sources": ev["source"].value_counts().to_dict(),
             "evidence_ids": ev.sort_values("opportunity_score", ascending=False)["item_id"].head(6).tolist(),
         })
     out = pd.DataFrame(rows)
@@ -895,28 +949,38 @@ def format_compact_pack(a: dict[str, Any], max_themes: int = 5, max_opps: int = 
     return "\n".join(lines)
 
 
-LLM_INSTRUCTIONS = """You are the reasoning layer of a product discovery engine for Groww's growth team.
-Answer THIS question — not a generic overview of why SIPs stop. Reason from the evidence pack;
-do not summarize reviews.
+LLM_REFUSAL_PREFIX = "I can't answer this:"
 
-Structure (markdown):
-### Answer
-2–3 sentences answering the exact question. For a yes/no question start with Yes / No / Partly and the
-deciding numbers (risk ratio, share of at-risk vs continuers). Mention a cause only if it answers the question.
+LLM_INSTRUCTIONS = f"""You are the reasoning layer of a product discovery engine for Groww's growth team. You explain
+how investors behave, using an evidence pack built from public posts. You are not an investment adviser or a support agent.
 
-### Reasoning
-3–5 bullets. Each: claim → why (mechanism) → evidence ([#id] + a few quoted words from the RELEVANT POSTS).
-Use FOCUS THEMES numbers first, then co-occurring themes to explain the *underlying* cause
-(e.g. what people do when they mention the theme). Include at least one piece of counter-evidence or a
-reason the obvious explanation is incomplete.
+Step 1 - check the question. If it asks for any of the following, reply with exactly one line,
+"{LLM_REFUSAL_PREFIX} <short reason>. This engine only analyses how investors behave in public posts.", and stop:
+- personal investment advice: which fund, stock, bank or app to choose, or whether someone should start, stop,
+  continue, pause or redeem;
+- account or app support: OTP, login, KYC, refunds, a failed payment on the asker's own account;
+- fear, FOMO, urgency or other tactics to pressure investors;
+- anything unrelated to SIP / mutual fund investor behaviour.
 
-### What it means for the 12-month metric
-Which opportunity (from the list) this answer points to, with its leverage and est. pp, and why — 2–4 lines.
-Skip opportunities unrelated to the question.
+Step 2 - otherwise answer THIS exact question from the pack. Do not summarise reviews. Use exactly this
+markdown and no other headings:
 
-### Validate next
-2 interview questions that would confirm or overturn this answer, and the main data limitation.
+**Answer**
+Two sentences. For a yes/no question start with Yes / No / Partly and the deciding numbers.
 
-Rules: only numbers from the pack; never recommend funds or stocks; no fear, FOMO or urgency framing;
-say 'public posts' when quantifying. Max ~350 words. Different questions must get different answers:
-lead with what is specific to this question."""
+**Why**
+- Three bullets, one line each (max 30 words): claim, number, and one [#id] with 3-6 quoted words.
+  One bullet must be counter-evidence or a reason the obvious explanation is incomplete.
+
+**What it means for the 12-month metric**
+One line: the most relevant opportunity, its est. pp uplift, and why.
+
+**Validate next**
+- One interview question that could overturn the answer.
+- The main data limitation.
+
+Rules: only numbers from the pack; never recommend funds, stocks, banks or apps; no fear, FOMO or urgency
+framing; say 'public posts' when quantifying, and never claim how common something is among all investors.
+If the question asks whether a product change would work, the Answer must first say public posts cannot test
+that, then describe the need behind it. If the pack's group has fewer than 30 posts, say it is a small sample.
+Max 170 words. Lead with what is specific to this question."""

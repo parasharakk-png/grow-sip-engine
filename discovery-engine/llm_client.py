@@ -18,9 +18,11 @@ def make_client(api_key: str, base_url: str | None) -> Any:
     )
 
 
-def stream_text(client: Any, model: str, prompt: str, max_tokens: int = MAX_OUTPUT_TOKENS) -> Iterator[str]:
+def stream_text(
+    client: Any, model: str, prompt: str, max_tokens: int = MAX_OUTPUT_TOKENS, usage: dict | None = None
+) -> Iterator[str]:
     """Yield answer text as it arrives. Reasoning models think first, so max_tokens must leave room
-    for both thinking and the answer."""
+    for both thinking and the answer. Token counts are written into `usage` when given."""
     got_text = False
     with client.messages.stream(
         model=model,
@@ -32,5 +34,8 @@ def stream_text(client: Any, model: str, prompt: str, max_tokens: int = MAX_OUTP
                 got_text = True
                 yield event.delta.text
         final = stream.get_final_message()
+    if usage is not None and getattr(final, "usage", None):
+        usage["input_tokens"] = getattr(final.usage, "input_tokens", None)
+        usage["output_tokens"] = getattr(final.usage, "output_tokens", None)
     if not got_text:
         raise RuntimeError(f"model returned no answer text (stop_reason={final.stop_reason})")

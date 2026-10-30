@@ -4,11 +4,14 @@ Groww SIP Discovery Engine — reasons about causes and sizes opportunities (not
 
 from __future__ import annotations
 
+import hashlib
 import itertools
+import json
 import os
 import re
 from pathlib import Path
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -17,19 +20,24 @@ from discovery_analytics import (
     enrich_dataframe,
     opportunity_by_metric_branch,
 )
+from golden_set_eval import CODEBOOK, evaluate, load_golden, summary_counts, validate
 from hypotheses import build_hypotheses, strength
 from llm_client import make_client, stream_text
 from plain_labels import BRANCH_PLAIN, LAPSE_PLAIN, opportunity_score_plain, plain_branch, plain_trigger
+from question_guard import MESSAGES, GuardResult, classify_question, is_intervention_question, run_guard_tests
 from reasoning import (
     LLM_INSTRUCTIONS,
+    LLM_REFUSAL_PREFIX,
+    MIN_EVIDENCE,
     OPPORTUNITIES,
+    SMALL_SAMPLE,
     STOP_REASONS,
     build_reasoned_analysis,
     format_compact_pack,
     opportunity_table,
     tag_themes,
 )
-from rule_based_narrative import reasoned_narrative
+from rule_based_narrative import reasoned_narrative, reasoned_summary
 
 ENGINE_DIR = Path(__file__).resolve().parent
 DATA_CSV = ENGINE_DIR / "data" / "grow_sip_956.csv"
@@ -56,6 +64,22 @@ COHORT_TARGET = "Target: first-time / young"
 COHORT_COMPARISON = "Comparison: other investors"
 
 SELECTION_LOG = ENGINE_DIR / "data" / "selection_log.csv"
+POST_DATES = ENGINE_DIR / "data" / "post_dates.csv"
+CODED_CHECKPOINT = ENGINE_DIR / "coded_posts.checkpoint.jsonl"
+SCREEN_CHECKPOINT = ENGINE_DIR / "data" / "screening.checkpoint.jsonl"
+GOLDEN_HUMAN = "Hand-labelled golden set"
+
+# How each source was collected (collect.py) and what that means for reuse.
+SOURCE_METHODS = {
+    "Play Store": ("Unofficial google-play-scraper library (Groww app reviews)",
+                   "Not an official API: check Google Play's terms before reuse"),
+    "App Store": ("Apple's public customer-reviews RSS feed (Groww app)", "Public feed"),
+    "Reddit": ("Public subreddit search RSS feeds, keyword queries", "Public feed; keyword search over-selects "
+               "stop / pause / autopay threads"),
+    "TradingQ&A": ("The forum's public search endpoint, keyword queries", "Public endpoint"),
+    "YouTube": ("Unofficial youtube-comment-downloader library", "Not the official API; dates are relative "
+                "('3 weeks ago'), kept at month precision"),
+}
 
 # The nine discovery questions from the problem statement, in its order.
 PROBLEM_QUESTIONS: list[tuple[str, str]] = [
@@ -115,7 +139,92 @@ def load_posts() -> pd.DataFrame:
     df["post_snippet"] = df["post_text"].str.slice(0, 200)
     is_comparison = (df["selection"] == "") | df["selection"].str.startswith("comparison")
     df["cohort"] = is_comparison.map({True: COHORT_COMPARISON, False: COHORT_TARGET})
+    if POST_DATES.exists():
+        dates = pd.read_csv(POST_DATES, dtype=str).fillna("")
+        df = df.merge(dates, on="item_id", how="left").fillna({"published": "", "precision": ""})
+    else:
+        df["published"], df["precision"] = "", ""
+    df["year"] = pd.to_numeric(df["published"].str[:4], errors="coerce")
+    norm = lambda s: re.sub(r"\W+", " ", s.lower()).strip()  # noqa: E731
+    df["quote_check"] = [
+        "No quote" if not q.strip() else "Verbatim" if norm(q) in norm(p) else "Not found in post"
+        for q, p in zip(df["quote"], df["post_text"])
+    ]
+    golden = load_golden()
+    verified = golden.get("human_verified", pd.Series("", index=golden.index)).fillna("").str.lower()
+    df["in_golden"] = df["item_id"].isin(set(golden["item_id"].astype(str)))
+    df["golden_verified"] = df["item_id"].isin(set(golden.loc[verified.isin(["yes", "y", "true", "1"]), "item_id"].astype(str)))
     return tag_themes(enrich_dataframe(df))
+
+
+def _file_version(*paths: Path) -> str:
+    h = hashlib.sha1()
+    for p in paths:
+        if p.exists():
+            h.update(p.read_bytes())
+    return h.hexdigest()[:10]
+
+
+@st.cache_data(show_spinner=False)
+def provenance() -> dict[str, str]:
+    """Versions shown under every answer, so a reviewer can tell which data, rules and prompt produced it."""
+    def top_model(path: Path, key: str) -> str:
+        if not path.exists():
+            return "unknown"
+        counts: dict[str, int] = {}
+        for line in path.read_text().splitlines():
+            try:
+                m = json.loads(line).get(key) or "unknown"
+            except ValueError:
+                continue
+            counts[m] = counts.get(m, 0) + 1
+        return max(counts, key=counts.get) if counts else "unknown"
+
+    return {
+        "dataset": _file_version(DATA_CSV, POST_DATES),
+        "rules": _file_version(ENGINE_DIR / "reasoning.py", ENGINE_DIR / "rule_based_narrative.py",
+                               ENGINE_DIR / "question_guard.py"),
+        "prompt": hashlib.sha1(LLM_INSTRUCTIONS.encode()).hexdigest()[:8],
+        "coding_model": top_model(CODED_CHECKPOINT, "coding_model"),
+        "screen_model": top_model(SCREEN_CHECKPOINT, "screen_model"),
+    }
+
+
+def render_post_card(p: pd.Series, extra: str = "") -> None:
+    """One evidence post with where it came from and how far its labels can be trusted."""
+    text = re.sub(r"\s+", " ", p.get("post_clean") or p["post_text"]).strip()
+    labels = {t.code: t.label for t in STOP_REASONS}
+    with st.container(border=True):
+        st.markdown(f"> {text[:360]}{'…' if len(text) > 360 else ''}")
+        when = p["published"][:7] if p["precision"] == "month" else p["published"]
+        st.caption(
+            f"**#{p['item_id']}** · {p['source']} · {when or 'date unknown'} · {p['cohort']} · "
+            f"[open source ↗]({p['url']})" + (f" · {extra}" if extra else "")
+        )
+        tags = [
+            f"Cause: {labels.get(p['primary_reason'], 'not stated')}",
+            f"Behaviour: {p['behaviour'].replace('_', ' ')}",
+            f"Stage: {p['lifecycle'].replace('_', ' ')}",
+            f"Emotion: {p['emotion'].replace('_', ' ')}",
+        ]
+        st.caption(" · ".join(tags))
+        st.caption(
+            f"Tags: codebook by {provenance()['coding_model']}, cause by text rules · Quote check: {p['quote_check']}"
+            + _review_status(p)
+        )
+
+
+def _review_status(p: pd.Series) -> str:
+    if p["golden_verified"]:
+        return f" · **In the {GOLDEN_HUMAN.lower()}**, labels verified by a human"
+    if p["in_golden"]:
+        return f" · **In the {GOLDEN_HUMAN.lower()}**, labels awaiting human verification"
+    return " · not individually reviewed"
+
+
+def table_view(data: pd.DataFrame, label: str = "Table view") -> None:
+    with st.expander(label):
+        st.dataframe(data, hide_index=True, width="stretch")
 
 
 def render_ai_reasoning(question: str, a: dict, cfg: dict[str, str]) -> None:
@@ -124,20 +233,115 @@ def render_ai_reasoning(question: str, a: dict, cfg: dict[str, str]) -> None:
     key = (question, cfg["model"], hash(pack))
     if key in cache:
         st.caption(f"Source: AI reasoning ({cfg['model']}) · cached")
-        st.markdown(cache[key])
+        text, usage = cache[key]
+        _show_ai_answer(text)
+        _ai_provenance(a, cfg, usage)
         return
     st.caption(f"Source: AI reasoning ({cfg['model']}) · usually 20–60 s; the computed answer is in the next tab")
     prompt = f"{LLM_INSTRUCTIONS}\n\n=== EVIDENCE PACK ===\n{pack}"
+    usage: dict = {}
     try:
         with st.spinner("Model is thinking before it writes…"):
             client = make_client(cfg["api_key"], cfg.get("base_url"))
-            chunks = stream_text(client, cfg["model"], prompt)
+            chunks = stream_text(client, cfg["model"], prompt, usage=usage)
             first = next(chunks)
-        text = st.write_stream(itertools.chain([first], chunks))
-        cache[key] = text
+        if first.lstrip().startswith(LLM_REFUSAL_PREFIX[:6]):
+            text = (first + "".join(chunks)).strip()
+            _show_ai_answer(text)
+        else:
+            with st.container(border=True):
+                text = st.write_stream(itertools.chain([first], chunks))
+        cache[key] = (text, usage)
+        _ai_provenance(a, cfg, usage)
     except Exception as e:  # noqa: BLE001
         st.warning(
             f"AI reasoning unavailable ({str(e)[:200]}). The computed reasoning tab has the full answer."
+        )
+
+
+def _ai_provenance(a: dict, cfg: dict[str, str], usage: dict) -> None:
+    v = provenance()
+    tokens = (f" · {usage['input_tokens']:,} input / {usage['output_tokens']:,} output tokens"
+              if usage.get("input_tokens") is not None and usage.get("output_tokens") is not None else "")
+    st.caption(
+        f"Model {cfg['model']} · prompt {v['prompt']} · dataset {v['dataset']} · evidence pack from "
+        f"{a['pop_n']} posts, {len(a['relevant_posts'])} quoted{tokens}. The model sees only this pack; "
+        "every number must come from it."
+    )
+
+
+def _computed_provenance(a: dict) -> None:
+    v = provenance()
+    st.caption(
+        f"Computed by rules {v['rules']} · dataset {v['dataset']} ({a['corpus_n']} posts; tags by {v['coding_model']} "
+        f"against `codebook.json`, causes by text rules) · {a['pop_n']} posts used for this question."
+    )
+
+
+def _show_ai_answer(text: str) -> None:
+    if not text:
+        st.warning("The model returned no answer. Use the computed reasoning tab.")
+    elif text.startswith(LLM_REFUSAL_PREFIX):
+        st.info(text)
+    else:
+        with st.container(border=True):
+            st.markdown(text)
+
+
+def _ask_instead(question: str) -> None:
+    st.session_state.discovery_q_input = question
+    st.session_state.discovery_question = question
+
+
+def render_guard_message(question: str, g: GuardResult) -> None:
+    title, body = MESSAGES[g.kind]
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        st.markdown(body)
+        st.caption(
+            f"Question check: {g.reason}. Neither the computed nor the AI reasoning was run, "
+            "so no answer is generated for this question."
+        )
+        if g.reframe:
+            st.markdown(f"**A research question the engine can answer instead:** {g.reframe}")
+            st.button("Ask this instead", key="guard_reframe", on_click=_ask_instead, args=(g.reframe,))
+        else:
+            st.markdown("Try one of the nine discovery questions above.")
+
+
+def render_computed_answer(a: dict, summary: dict) -> None:
+    st.caption("Source: computed reasoning (rules over coded data) · instant")
+    with st.container(border=True):
+        st.markdown("**Answer**")
+        st.markdown(summary["answer"])
+        if summary["why"]:
+            st.markdown("**Why**")
+            st.markdown("\n".join(f"- {w}" for w in summary["why"]))
+        if summary["metric"]:
+            st.markdown("**What it means for the 12-month metric**")
+            st.markdown(summary["metric"])
+        st.markdown("**Validate next**")
+        st.markdown("\n".join(f"- {v}" for v in summary["validate"]))
+    _computed_provenance(a)
+    with st.expander("Full computed reasoning (mechanisms, more evidence, all linked opportunities)"):
+        st.markdown(reasoned_narrative(a))
+
+
+def render_guard_tests() -> None:
+    res = run_guard_tests()
+    passed = int(res["pass"].sum())
+    with st.expander(f"How questions are checked before answering ({passed}/{len(res)} test questions routed correctly)"):
+        st.markdown(
+            "Every question is checked first, without AI. **Research** questions about how investors behave are "
+            "answered. **Personal advice** (which fund, should I stop), **account support** (OTP, login, KYC), "
+            "**fear / FOMO tactics** and **off-topic** questions are declined, and where possible a research "
+            "version of the question is offered instead. The AI prompt repeats the same rules as a second layer."
+        )
+        st.dataframe(
+            res.rename(columns={"question": "Question", "expected": "Expected", "got": "Engine", "pass": "Correct",
+                                "note": "Why it is in the test set"}),
+            hide_index=True,
+            width="stretch",
         )
 
 
@@ -145,40 +349,124 @@ def _overrides_from_state() -> dict[str, dict[str, float]]:
     return st.session_state.get("opp_overrides", {})
 
 
+P1_TERMS = re.compile(r"payment|mandate|auto-?pay|debit|retry|bank|salary|instal|fail", re.I)
+P2_TERMS = re.compile(r"fall|crash|dip|correction|panic|volatil|bear|other investors|others|social proof|nudge", re.I)
+
+
+def _evidence_basis(a: dict) -> tuple[int, str]:
+    """The number of posts the answer actually rests on: the named theme if there is one, else the group."""
+    if a["focus"]:
+        f = max(a["focus"], key=lambda x: x["in_group"])
+        return f["in_group"], f"posts that mention {f['label'].lower()}"
+    return a["pop_n"], "posts"
+
+
+def render_not_enough_evidence(df: pd.DataFrame, a: dict, n: int, label: str) -> None:
+    with st.container(border=True):
+        st.markdown("**Not enough evidence to answer this reliably.**")
+        st.markdown(
+            f"Only {n} {label} were found in this group; the engine needs at least {MIN_EVIDENCE} before it "
+            "draws a conclusion. Relevant posts that use other wording may be missed."
+        )
+        st.caption("No computed or AI answer was generated. Try one of the nine discovery questions above.")
+    if a["relevant_posts"]:
+        st.markdown("**Closest posts**")
+        posts = df.set_index("item_id", drop=False)
+        for e in a["relevant_posts"][:3]:
+            render_post_card(posts.loc[e["id"]])
+
+
+def _problem_code(question: str, a: dict) -> str | None:
+    codes = {f["code"] for f in a["focus"]}
+    if "involuntary_system" in codes or a["intent"].code == "payment":
+        return "payment_reliability"
+    if codes & {"market_timing", "decision_doubt", "poor_returns"} or P2_TERMS.search(question):
+        return "decision_support"
+    if P1_TERMS.search(question):
+        return "payment_reliability"
+    return None
+
+
+def _golden_check(question: str, a: dict) -> str:
+    code = _problem_code(question, a)
+    return _golden_note(code) if code else ""
+
+
+def render_intervention_card(question: str, a: dict) -> None:
+    code = _problem_code(question, a)
+    if code is None:
+        relevant = a["opportunities"][a["opportunities"]["Relevant to question"]]
+        code = (relevant if not relevant.empty else a["opportunities"]).iloc[0]["code"]
+    o = next(o for o in OPPORTUNITIES if o.code == code)
+    with st.container(border=True):
+        st.markdown("**This asks whether a product change would work. Public posts can't show that; only an "
+                    "experiment can.**")
+        st.markdown(
+            "Posts show the need behind the idea and who has it, which is what the answer below describes. "
+            f"Closest opportunity: **{o.label}**."
+        )
+        st.markdown(f"- **How to test it:** {o.experiment}\n- **Metric to watch:** {o.business_metric}")
+        if code == "decision_support":
+            st.markdown(
+                "- **Guardrail:** keep any message neutral and factual. Fund-level 'others are continuing' numbers "
+                "can read as a fund endorsement or a herd signal, which the brief rules out."
+            )
+
+
 def render_reasoned_results(df: pd.DataFrame, question: str, use_llm: bool) -> None:
+    guard = classify_question(question)
+    if not guard.allowed:
+        render_guard_message(question, guard)
+        return
     lapse = st.session_state.get("lapse_rate", 40) / 100
     recovery = st.session_state.get("recovery_rate", 30) / 100
     a = build_reasoned_analysis(df, question, lapse, recovery, _overrides_from_state())
+    intervention = is_intervention_question(question)
+    if intervention:
+        a["is_hypothesis"] = False
     intent = a["intent"]
-
-    st.markdown("### How the engine read your question")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Question type", intent.title)
-    c2.metric("Posts analysed", f"{a['pop_n']} / {a['corpus_n']}")
-    c3.metric("Cause inferred for", f"{a['explained_pct']}%")
-    c4.metric("First-time investor posts", a["first_timer_n"])
-    st.caption(f"Group: {intent.population}. Compared against: {intent.base} (n={a['base_n']}).")
-
-    if a["pop_n"] == 0:
-        st.info("No posts match. Try one of the nine discovery questions above.")
+    basis_n, basis_label = _evidence_basis(a)
+    if basis_n < MIN_EVIDENCE:
+        render_not_enough_evidence(df, a, basis_n, basis_label)
         return
 
-    st.markdown("---")
+    summary = reasoned_summary(a)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Read as", intent.title)
+    c2.metric("Posts analysed", f"{a['pop_n']} / {a['corpus_n']}")
+    c3.metric("First-time investor posts", a["first_timer_n"])
+    c4.metric("Top opportunity uplift", f"+{summary['uplift']} pp" if summary["uplift"] is not None else "—")
+    st.caption(
+        f"Group: {intent.population}, compared against {intent.base} (n={a['base_n']}). "
+        f"A cause could be inferred for {a['explained_pct']}% of the group."
+    )
+    if basis_n < SMALL_SAMPLE:
+        st.warning(
+            f"**Small sample:** this answer rests on {basis_n} {basis_label}. Treat it as a lead for interviews, "
+            "not a finding."
+        )
+    if intervention:
+        render_intervention_card(question, a)
+    golden = _golden_check(question, a)
+    if golden:
+        st.info(golden)
+
     cfg = load_secrets()
-    computed = reasoned_narrative(a)
     if use_llm and cfg.get("api_key"):
         ai_tab, rules_tab = st.tabs(["AI reasoning", "Computed reasoning"])
         with rules_tab:
-            st.caption("Source: computed reasoning (rules over coded data) · instant")
-            st.markdown(computed)
+            render_computed_answer(a, summary)
         with ai_tab:
             render_ai_reasoning(question, a, cfg)
     else:
-        st.caption("Source: computed reasoning (rules over coded data)")
-        st.markdown(computed)
+        render_computed_answer(a, summary)
 
-    st.markdown("---")
-    st.markdown("### The numbers behind the reasoning")
+    with st.expander("Data behind this answer (causes, kind of stop, opportunities, segments, all evidence posts)"):
+        render_answer_data(df, a)
+
+
+def render_answer_data(df: pd.DataFrame, a: dict) -> None:
+    intent = a["intent"]
     t1, t2, t3, t4, t5 = st.tabs(
         ["Root causes", "Kind of stop", "Opportunity comparison", "Segments & pathways", "Evidence"]
     )
@@ -193,7 +481,7 @@ def render_reasoned_results(df: pd.DataFrame, question: str, use_llm: bool) -> N
             "if it does, the theme alone does not explain stopping."
         )
         chart = a["profile"].set_index("Theme")[["% of group", "% among continuers"]]
-        st.bar_chart(chart, horizontal=True)
+        st.bar_chart(chart, horizontal=True, stack=False, color=[CB_ORANGE, CB_BLUE])
         if not a["needs"].empty:
             st.markdown("**Stated unmet needs, grouped**")
             st.dataframe(a["needs"], hide_index=True, width="stretch")
@@ -214,10 +502,13 @@ def render_reasoned_results(df: pd.DataFrame, question: str, use_llm: bool) -> N
         st.dataframe(a["pathways"], hide_index=True, width="stretch")
     with t5:
         labels = {t.code: t.label for t in intent.lens}
+        posts = df.set_index("item_id", drop=False)
+        st.caption(f"Up to 3 posts per theme, most relevant to the question first. {MIN_EVIDENCE}+ matching posts "
+                   f"are needed for an answer; fewer than {SMALL_SAMPLE} is labelled a small sample.")
         for code, items in a["evidence"].items():
             st.markdown(f"**{labels.get(code, code)}**")
             for e in items:
-                st.markdown(f"- [#{e['id']}]({e['url']}) *({e['source']})* {e['text']}")
+                render_post_card(posts.loc[e["id"]])
 
 
 def render_opportunity_table(opps: pd.DataFrame, highlight: bool = False) -> None:
@@ -247,7 +538,8 @@ def render_opportunity_table(opps: pd.DataFrame, highlight: bool = False) -> Non
             "Lift vs all posts": st.column_config.NumberColumn(format="%.1f×"),
         },
     )
-    st.bar_chart(opps.set_index("Opportunity")["Est. uplift (pp)"], horizontal=True, y_label="", x_label="Est. uplift (pp)")
+    st.bar_chart(opps.set_index("Opportunity")["Est. uplift (pp)"], horizontal=True, y_label="",
+                 x_label="Est. uplift (pp)", color=BRAND)
     with st.expander("Product direction per opportunity (no fund advice, no fear/urgency)"):
         for _, o in opps.iterrows():
             ids = ", ".join(f"#{i}" for i in o["evidence_ids"])
@@ -259,64 +551,453 @@ def render_opportunity_table(opps: pd.DataFrame, highlight: bool = False) -> Non
     )
 
 
-def render_opportunity_tab(df: pd.DataFrame) -> None:
-    st.subheader("Opportunity sizing — which fix moves the 12-month metric most?")
-    st.markdown(
-        "Each at-risk post (stopped, paused, payment failed, or high link to lapse) is assigned one "
-        "**primary cause** from its text. Causes are grouped into product-addressable opportunity areas "
-        "and sized with explicit assumptions you can change."
-    )
-    c1, c2 = st.columns(2)
-    c1.slider(
-        "Assumed % of first-time investors with no active SIP at month 12",
-        10, 80, key="lapse_rate",
-        help="Replace with Groww cohort data. Public posts can't measure this.",
-    )
-    c2.slider(
-        "Assumed % of addressable lapses a good fix recovers",
-        5, 80, key="recovery_rate",
-    )
+OPP_SHORT = {
+    "payment_reliability": "Payment & mandate reliability",
+    "switch_without_gap": "Switch fund without a gap",
+    "decision_support": "Support at 'should I stop?'",
+    "cash_flexibility": "Cash-flow flexibility",
+    "control_clarity": "Pause / skip controls",
+    "understandability": "'Is my SIP working?'",
+}
+BRAND, CB_ORANGE, CB_BLUE = "#00B386", "#E69F00", "#0072B2"
+OPP_VIEWS = {
+    "Estimated uplift": "Percentage points added to 12-month SIP continuation if the fix works, under the "
+                        "assumptions in use. This is the ranking metric.",
+    "Share of stop posts": "Share of posts about stopping whose primary cause falls in this area: the size of the "
+                           "evidence behind each bet.",
+    "Stoppers vs continuers": "How often each theme is mentioned by people who stopped vs people who kept going. A "
+                              "theme just as common among continuers does not explain drop-off.",
+    "Severity vs addressability": "The two judgement inputs. Top-right = the moment usually ends the SIP and Groww can "
+                                  "fix it. Bubble size = evidence posts.",
+}
 
-    st.markdown("**Severity and addressability (edit to test your own judgement)**")
+
+def _opp_ratio(o: pd.Series) -> float | None:
+    cont = float(o["% among continuers"])
+    return round(float(o["Mentioned in at-risk %"]) / cont, 1) if cont else None
+
+
+def render_opportunity_assumptions() -> dict[str, dict[str, float]]:
     defaults = pd.DataFrame(
-        [
-            {"code": o.code, "Opportunity": o.label, "Severity": o.severity, "Addressability": o.addressability}
-            for o in OPPORTUNITIES
-        ]
+        [{"code": o.code, "Opportunity": o.label, "Severity": o.severity, "Addressability": o.addressability}
+         for o in OPPORTUNITIES]
     )
-    edited = st.data_editor(
-        defaults,
-        hide_index=True,
-        disabled=["code", "Opportunity"],
-        column_config={
-            "code": None,
-            "Severity": st.column_config.NumberColumn(
-                min_value=0.0, max_value=1.0, step=0.05,
-                help="If nothing changes, how likely does this moment end with no active SIP?",
-            ),
-            "Addressability": st.column_config.NumberColumn(
-                min_value=0.0, max_value=1.0, step=0.05,
-                help="How much can Groww fix this within the constraints (no fund advice, no fear/FOMO)?",
-            ),
-        },
-        key="opp_editor",
-    )
+    with st.expander("Assumptions (open to test your own judgement)"):
+        c1, c2 = st.columns(2)
+        c1.slider(
+            "Assumed % of first-time investors with no active SIP at month 12",
+            10, 80, key="lapse_rate",
+            help="Replace with Groww cohort data. Public posts can't measure this.",
+        )
+        c2.slider("Assumed % of addressable lapses a good fix recovers", 5, 80, key="recovery_rate")
+        st.markdown(
+            "**Severity**: if nothing changes, how likely this moment ends with no active SIP.  \n"
+            "**Addressability**: how much Groww can fix it within the constraints (no fund advice, no fear or FOMO)."
+        )
+        edited = st.data_editor(
+            defaults,
+            hide_index=True,
+            disabled=["code", "Opportunity"],
+            column_config={
+                "code": None,
+                "Severity": st.column_config.NumberColumn(min_value=0.0, max_value=1.0, step=0.05),
+                "Addressability": st.column_config.NumberColumn(min_value=0.0, max_value=1.0, step=0.05),
+            },
+            key="opp_editor",
+        )
     overrides = {
         r["code"]: {"severity": float(r["Severity"]), "addressability": float(r["Addressability"])}
         for _, r in edited.iterrows()
     }
     st.session_state["opp_overrides"] = overrides
+    changed = not edited[["Severity", "Addressability"]].equals(defaults[["Severity", "Addressability"]])
+    st.caption(
+        f"In use: {st.session_state['lapse_rate']}% of first-time investors lapse by month 12 · a good fix recovers "
+        f"{st.session_state['recovery_rate']}% of addressable lapses · severity and addressability "
+        f"{'**edited by you**' if changed else 'at default judgement'}."
+    )
+    return overrides
 
-    opps = opportunity_table(
-        df, st.session_state["lapse_rate"] / 100, st.session_state["recovery_rate"] / 100, overrides
+
+def _opp_bar_chart(opps: pd.DataFrame, value: str, title: str, fmt: str) -> None:
+    d = pd.DataFrame({"name": opps["Short name"], "value": opps[value], "posts": opps["Evidence posts"],
+                      "confidence": opps["Confidence"]})
+    d["label"] = d["value"].map(lambda v: fmt.format(v))
+    base = alt.Chart(d).encode(
+        y=alt.Y("name:N", sort=alt.EncodingSortField(field="value", order="descending"), title=None,
+                axis=alt.Axis(labelLimit=260, labelFontSize=13)),
+        x=alt.X("value:Q", title=title, axis=alt.Axis(grid=False)),
+        tooltip=[alt.Tooltip("name:N", title="Opportunity"), alt.Tooltip("value:Q", title=title, format=".2f"),
+                 alt.Tooltip("posts:Q", title="Evidence posts"), alt.Tooltip("confidence:N", title="Confidence")],
     )
-    render_opportunity_table(opps)
-    total = opps["Est. uplift (pp)"].sum()
+    chart = base.mark_bar(color=BRAND, cornerRadiusEnd=4, height=26) + base.mark_text(
+        align="left", dx=5, fontSize=13, fontWeight="bold").encode(text="label:N")
+    st.altair_chart(chart.properties(height=55 * len(d)), use_container_width=True)
+    table_view(d.sort_values("value", ascending=False)[["name", "value", "posts", "confidence"]].rename(
+        columns={"name": "Opportunity", "value": title, "posts": "Evidence posts", "confidence": "Confidence"}))
+
+
+def _opp_contrast_chart(opps: pd.DataFrame) -> None:
+    order = opps.sort_values("Mentioned in at-risk %", ascending=False)["Short name"].tolist()
+    groups = ["Stopped or lapsed", "Kept investing"]
+    long = pd.concat([
+        pd.DataFrame({"name": opps["Short name"], "Group": groups[0], "pct": opps["Mentioned in at-risk %"]}),
+        pd.DataFrame({"name": opps["Short name"], "Group": groups[1], "pct": opps["% among continuers"]}),
+    ])
+    long["label"] = long["pct"].map(lambda v: f"{v:.0f}%")
+    base = alt.Chart(long).encode(
+        y=alt.Y("name:N", sort=order, title=None, axis=alt.Axis(labelLimit=260, labelFontSize=13)),
+        yOffset=alt.YOffset("Group:N", sort=groups),
+        x=alt.X("pct:Q", title="% of posts mentioning the theme", axis=alt.Axis(grid=False)),
+        color=alt.Color("Group:N", sort=groups, scale=alt.Scale(domain=groups, range=[CB_ORANGE, CB_BLUE]),
+                        legend=alt.Legend(orient="top", title=None, labelFontSize=13)),
+        tooltip=[alt.Tooltip("name:N", title="Opportunity"), "Group:N", alt.Tooltip("pct:Q", title="% of posts")],
+    )
+    chart = base.mark_bar(cornerRadiusEnd=3) + base.mark_text(align="left", dx=4, fontSize=12).encode(text="label:N")
+    st.altair_chart(chart.properties(height=75 * len(opps)), use_container_width=True)
+    table_view(long.pivot(index="name", columns="Group", values="pct").reindex(order)[groups]
+               .rename_axis("Opportunity").reset_index())
+
+
+def _opp_matrix_chart(opps: pd.DataFrame) -> None:
+    d = pd.DataFrame({"name": opps["Short name"], "sev": opps["Severity"], "addr": opps["Addressability"],
+                      "posts": opps["Evidence posts"], "uplift": opps["Est. uplift (pp)"]})
+    x = alt.X("addr:Q", scale=alt.Scale(domain=[0, 1.05]), title="Addressability: can Groww fix it?")
+    y = alt.Y("sev:Q", scale=alt.Scale(domain=[0, 1.05]), title="Severity: does it end the SIP?")
+    tip = [alt.Tooltip("name:N", title="Opportunity"), alt.Tooltip("posts:Q", title="Evidence posts"),
+           alt.Tooltip("uplift:Q", title="Est. uplift (pp)", format=".2f")]
+    points = alt.Chart(d).mark_circle(color=BRAND, opacity=0.7, stroke="#004D3A", strokeWidth=1).encode(
+        x=x, y=y, size=alt.Size("posts:Q", scale=alt.Scale(range=[200, 3000]), legend=None), tooltip=tip)
+    labels = alt.Chart(d).mark_text(dy=-22, fontSize=12, fontWeight="bold").encode(x=x, y=y, text="name:N")
+    mid = pd.DataFrame({"v": [0.5]})
+    guides = (alt.Chart(mid).mark_rule(strokeDash=[4, 4], color="#9E9E9E").encode(x="v:Q")
+              + alt.Chart(mid).mark_rule(strokeDash=[4, 4], color="#9E9E9E").encode(y="v:Q"))
+    st.altair_chart((guides + points + labels).properties(height=440), use_container_width=True)
+    table_view(d.rename(columns={"name": "Opportunity", "sev": "Severity", "addr": "Addressability",
+                                 "posts": "Evidence posts", "uplift": "Est. uplift (pp)"}))
+
+
+def render_opportunity_compare(opps: pd.DataFrame) -> None:
+    view = st.segmented_control(
+        "Compare the six opportunities by", list(OPP_VIEWS), default="Estimated uplift", key="opp_view"
+    ) or "Estimated uplift"
+    st.caption(OPP_VIEWS[view])
+    if view == "Estimated uplift":
+        _opp_bar_chart(opps, "Est. uplift (pp)", "Estimated uplift to 12-month continuation (pp)", "+{:.2f} pp")
+    elif view == "Share of stop posts":
+        _opp_bar_chart(opps, "% of at-risk posts", "% of posts about stopping (primary cause)", "{:.1f}%")
+    elif view == "Stoppers vs continuers":
+        _opp_contrast_chart(opps)
+    else:
+        _opp_matrix_chart(opps)
+
+    st.markdown("**Ranked opportunities**")
+    show_all = st.toggle("Show every calculated column", key="opp_all_cols")
+    cols = ["Rank", "Opportunity", "Metric branch", "Evidence posts", "% of at-risk posts", "Mentioned in at-risk %",
+            "% among continuers", "Est. uplift (pp)", "Confidence"]
+    if show_all:
+        cols += ["Lift vs all posts", "First-timer share %", "Severity", "Addressability", "Lapse share %",
+                 "Leverage index", "Business metric", "Experiment"]
+    st.dataframe(
+        opps[cols],
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Rank": st.column_config.NumberColumn(width="small"),
+            "% of at-risk posts": st.column_config.ProgressColumn(
+                "Share of stop posts", min_value=0, max_value=100, format="%.1f%%",
+                help="Posts about stopping whose primary cause is in this area"),
+            "Mentioned in at-risk %": st.column_config.NumberColumn(
+                "Mentioned by stoppers", format="%.1f%%", help="Any mention of the theme in posts about stopping"),
+            "% among continuers": st.column_config.NumberColumn(
+                "Mentioned by continuers", format="%.1f%%", help="Any mention of the theme by people who kept investing"),
+            "Est. uplift (pp)": st.column_config.NumberColumn("Est. uplift", format="+%.2f pp"),
+            "Lift vs all posts": st.column_config.NumberColumn(format="%.1f×"),
+        },
+    )
+    st.download_button("Download the opportunity table (CSV)", opps.drop(columns=["evidence_ids"]).to_csv(index=False),
+                       file_name="opportunity_sizing.csv")
+
+
+def _golden_note(code: str) -> str:
+    c = summary_counts(load_golden())
+    if code == "payment_reliability":
+        return (f"Hand-labelled golden set: of {c['p1_failures']} failed instalments, {c['p1_not_notified']} users "
+                f"were not told in time, {c['p1_fixable']} could have fixed it with the right prompt, and "
+                f"{c['p1_two_account']} come from salary landing in a different account from the SIP mandate.")
+    if code == "decision_support":
+        fit = c["p2_nudge_yes"] + c["p2_nudge_partial"] + c["p2_nudge_no"]
+        return (f"Hand-labelled golden set: of {c['p2_stop']} stops during a fall, {c['p2_stop_fall_emotion']} are "
+                f"emotional reactions, {c['p2_stop_timing']} deliberate timing, {c['p2_stop_fund']} fund-specific and "
+                f"{c['p2_stop_cash']} cash needs. A 'how many kept their SIP' message fully fits {c['p2_nudge_yes']} "
+                f"of {fit} posts.")
+    return ""
+
+
+GOLDEN_CHECK_FOR = {"payment_reliability": "Instalment failed", "decision_support": "Why they stop (driver)"}
+
+
+def _validation_gaps(df: pd.DataFrame, o: pd.Series, code: str, ratio: float | None) -> list[str]:
+    gaps = []
+    n = int(o["Evidence posts"])
+    if n < SMALL_SAMPLE:
+        gaps.append(f"Small sample: {n} evidence posts (fewer than {SMALL_SAMPLE}).")
+    sources = o["Sources"]
+    if len(sources) == 1:
+        gaps.append(f"Evidence comes from a single source ({next(iter(sources))}).")
+    else:
+        gaps.append("Sources: " + ", ".join(f"{s} {c}" for s, c in sources.items()) + ".")
+    if float(o["First-timer share %"]) < 25:
+        gaps.append(f"Only {o['First-timer share %']:.0f}% of evidence posts come from first-time or young investors.")
+    if ratio is not None and ratio < 1.0:
+        gaps.append("Mentioned at least as often by investors who kept going, so it may explain complaints more "
+                    "than stopping.")
+    check = GOLDEN_CHECK_FOR.get(code)
+    if check:
+        scores, _, _ = evaluate(load_golden(), df)
+        agree = scores.loc[scores["What is checked"].eq(check), "Agreement %"].iloc[0]
+        gaps.append(f"Golden set: the text rules agree with hand labels {agree:.0f}% of the time on "
+                    f"'{check.lower()}'.")
+    else:
+        gaps.append("Not covered by the hand-labelled golden set: the cause detection for this area has not been "
+                    "checked by hand.")
+    ev = df[df["is_at_risk"] & df["primary_reason"].isin(next(x.reasons for x in OPPORTUNITIES if x.code == code))]
+    if not ev.empty:
+        gaps.append(f"{int((~ev['in_golden']).sum())} of {len(ev)} evidence posts carry AI tags only "
+                    "(not individually reviewed).")
+    gaps.append("Shares are of public posts, not of Groww users: validate the size with product analytics.")
+    gaps.append("Severity, addressability, the metric and the experiment are judgements and have not been tested.")
+    return gaps
+
+
+def render_opportunity_deep_dive(df: pd.DataFrame, opps: pd.DataFrame) -> None:
+    by_code = opps.set_index("code")
+    code = st.selectbox(
+        "Choose an opportunity", opps["code"], key="opp_focus",
+        format_func=lambda c: f"#{by_code.at[c, 'Rank']}  {by_code.at[c, 'Opportunity']}",
+    )
+    o = by_code.loc[code]
+    n_risk = int(df["is_at_risk"].sum())
+    ratio = _opp_ratio(o)
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Rank", f"#{o['Rank']} of {len(opps)}")
+    m2.metric("Evidence posts", int(o["Evidence posts"]))
+    m3.metric("Share of stop posts", f"{o['% of at-risk posts']:.1f}%")
+    m4.metric("Stoppers vs continuers", f"{ratio}×" if ratio else "n/a",
+              help="How many times more often people who stopped mention this theme than people who kept going")
+    m5.metric("Est. uplift", f"+{o['Est. uplift (pp)']:.2f} pp")
+
+    if ratio is None or ratio >= 1.5:
+        verdict = "**separates drop-offs from continuers**, so fixing it should move the metric"
+    elif ratio >= 1.0:
+        verdict = "is only **slightly** more common among drop-offs, so it explains part of the drop-off at best"
+    else:
+        verdict = ("is **at least as common among people who kept investing**, so it is a weak explanation of "
+                   "drop-off on its own")
+    left, right = st.columns([3, 2])
+    with left:
+        with st.container(border=True):
+            st.markdown("**Why it matters for the 12-month metric**")
+            st.markdown(
+                f"- **Metric branch:** {o['Metric branch']}\n"
+                f"- **Evidence:** primary cause in {int(o['Evidence posts'])} of {n_risk} posts about stopping "
+                f"({o['% of at-risk posts']:.1f}%); {o['First-timer share %']:.0f}% of these are from first-time or young investors.\n"
+                f"- **Contrast:** mentioned by {o['Mentioned in at-risk %']:.1f}% of people who stopped vs "
+                f"{o['% among continuers']:.1f}% of people who kept investing. The theme {verdict}.\n"
+                f"- **Confidence: {o['Confidence']}** (High = 25+ posts from 2+ sources; Medium = 10+ posts)."
+            )
+        with st.container(border=True):
+            st.markdown("**How the estimate is built**")
+            lapse, rec = st.session_state["lapse_rate"], st.session_state["recovery_rate"]
+            st.markdown(
+                f"1. Share of stop posts {o['% of at-risk posts']:.1f}% × severity {o['Severity']:.2f}, normalised "
+                f"across the six areas = **{o['Lapse share %']:.1f}% of lapses**\n"
+                f"2. Lapse share × addressability {o['Addressability']:.2f} = **leverage {o['Leverage index']:.1f}**\n"
+                f"3. {lapse}% lapse rate × {o['Lapse share %']:.1f}% × {o['Addressability']:.2f} × {rec}% recovery "
+                f"= **+{o['Est. uplift (pp)']:.2f} pp** to 12-month continuation"
+            )
+    with right:
+        with st.container(border=True):
+            st.markdown("**Product direction (no fund advice, no fear or urgency)**")
+            st.markdown(o["Product direction"])
+        with st.container(border=True):
+            st.markdown("**Qualitative judgements (not yet tested)**")
+            st.markdown(f"- **Business metric to move:** {o['Business metric']}\n"
+                        f"- **Suggested experiment:** {o['Experiment']}")
+        note = _golden_note(code)
+        if note:
+            st.info(note)
+
+    with st.container(border=True):
+        st.markdown("**Validation gaps**")
+        st.markdown("\n".join(f"- {g}" for g in _validation_gaps(df, o, code, ratio)))
+    with st.expander("Matching rule: which posts count as evidence for this opportunity"):
+        reasons = next(x.reasons for x in OPPORTUNITIES if x.code == code)
+        st.markdown(
+            f"A post about stopping counts when its **primary cause** is one of: "
+            + ", ".join(f"*{t.label}*" for t in STOP_REASONS if t.code in reasons)
+            + ". The primary cause is the first cause (in the taxonomy order) whose text pattern matches the post."
+        )
+        st.dataframe(
+            pd.DataFrame([{"Cause": t.label, "Text pattern (regex)": t.pattern} for t in STOP_REASONS
+                          if t.code in reasons]),
+            hide_index=True, width="stretch",
+        )
+        st.caption("A 'post about stopping' is one coded as stopped / paused / reduced / switched, at the stage "
+                   "stopped / paused / payment failed, or with a high link to lapse.")
+
+    st.markdown("**What users said** (strongest evidence posts)")
+    posts = df.set_index("item_id", drop=False)
+    for pid in o["evidence_ids"]:
+        if pid in posts.index:
+            render_post_card(posts.loc[pid])
+
+
+def render_opportunity_robustness(df: pd.DataFrame, opps: pd.DataFrame,
+                                  overrides: dict[str, dict[str, float]]) -> None:
+    lapse, rec = st.session_state["lapse_rate"] / 100, st.session_state["recovery_rate"] / 100
     top = opps.iloc[0]
-    st.success(
-        f"Highest leverage: **{top['Opportunity']}** (≈ +{top['Est. uplift (pp)']} pp). "
-        f"All six areas together: ≈ +{round(total, 2)} pp under these assumptions."
+
+    st.markdown("**1. The lapse and recovery assumptions change the size of each bet, never the order.**")
+    st.caption("Both multiply every opportunity equally. The table shows the #1 bet's uplift under other assumptions.")
+    grid = pd.DataFrame(
+        {f"{r}% recovered": [round(l * float(top["Leverage index"]) * r / 10000, 2) for l in (20, 30, 40, 50, 60)]
+         for r in (10, 20, 30, 50)},
+        index=[f"{l}% lapse by month 12" for l in (20, 30, 40, 50, 60)],
     )
+    st.dataframe(grid, width="stretch",
+                 column_config={c: st.column_config.NumberColumn(format="+%.2f pp") for c in grid.columns})
+
+    st.markdown(f"**2. Could any other bet overtake #1 ({top['Opportunity']})?**")
+    rows = []
+    for _, o in opps.iloc[1:].iterrows():
+        need = float(top["Leverage index"]) / float(o["Lapse share %"]) if o["Lapse share %"] else float("inf")
+        best = {**overrides, o["code"]: {"severity": 1.0, "addressability": 1.0}}
+        ranked = opportunity_table(df, lapse, rec, best)
+        best_rank = int(ranked.index[ranked["code"].eq(o["code"])][0]) + 1
+        rows.append({
+            "Opportunity": o["Opportunity"],
+            "Leverage now": float(o["Leverage index"]),
+            "Addressability needed to tie #1": "not reachable (needs > 1.0)" if need > 1 else f"{need:.2f}",
+            "Rank at maximum severity and addressability": f"#{best_rank}",
+        })
+    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+
+    def lowest(field: str) -> float:
+        current = overrides.get(top["code"], {}).get(field.lower(), float(top[field]))
+        value = current
+        for v in [round(current - 0.05 * i, 2) for i in range(1, int(current / 0.05) + 1)]:
+            trial = {**overrides, top["code"]: {**overrides.get(top["code"], {}), field.lower(): v}}
+            if opportunity_table(df, lapse, rec, trial).iloc[0]["code"] != top["code"]:
+                break
+            value = v
+        return value
+
+    min_sev, min_addr = lowest("Severity"), lowest("Addressability")
+    st.markdown("**3. How far can the #1 bet's own scores fall before it loses the top spot?**")
+    r1, r2 = st.columns(2)
+    r1.metric("Stays #1 down to severity", f"{min_sev:.2f}", f"from {float(top['Severity']):.2f}", delta_color="off")
+    r2.metric("Stays #1 down to addressability", f"{min_addr:.2f}", f"from {float(top['Addressability']):.2f}",
+              delta_color="off")
+    st.success(
+        f"**{top['Opportunity']}** stays the top bet across every lapse and recovery assumption, and keeps the top "
+        f"spot even if its severity falls to {min_sev:.2f} or its addressability to {min_addr:.2f}. The ranking rests "
+        "on the evidence share, not on the judgement scores."
+        if min_sev <= 0.5 and min_addr <= 0.5 else
+        f"**{top['Opportunity']}** is #1, but the lead depends on the judgement scores: it loses the top spot below "
+        f"severity {min_sev:.2f} or addressability {min_addr:.2f}. Validate these in interviews."
+    )
+
+
+def render_opportunity_method(df: pd.DataFrame) -> None:
+    reason_label = {t.code: t.label for t in STOP_REASONS}
+    st.markdown("**Which causes feed each opportunity**")
+    st.dataframe(
+        pd.DataFrame([{"Opportunity": o.label, "Metric branch": o.metric_branch,
+                       "Causes grouped": ", ".join(reason_label.get(r, r) for r in o.reasons),
+                       "Default severity": o.severity, "Default addressability": o.addressability}
+                      for o in OPPORTUNITIES]),
+        hide_index=True, width="stretch",
+    )
+    st.markdown("**Definitions**")
+    st.dataframe(
+        pd.DataFrame([
+            ("Posts about stopping", "Stopped, paused, payment failed, or a strong link to lapse in the codebook.",
+             "Evidence"),
+            ("Share of stop posts", "Posts about stopping whose primary cause is in the area ÷ all posts about stopping.",
+             "Evidence"),
+            ("Mentioned by stoppers / continuers", "Any mention of the area's themes among people who stopped vs "
+             "people who kept investing (same rule for both groups).", "Evidence"),
+            ("Lift vs all posts", "Mention rate among stoppers ÷ mention rate in all posts.", "Evidence"),
+            ("Severity", "If nothing changes, how likely this moment ends with no active SIP (0–1).", "Judgement"),
+            ("Addressability", "How much Groww can fix it within the constraints (0–1).", "Judgement"),
+            ("Lapse share %", "Share of stop posts × severity, normalised so the six areas add to 100%.", "Derived"),
+            ("Leverage index", "Lapse share % × addressability. Sets the ranking.", "Derived"),
+            ("Est. uplift (pp)", "Lapse rate × lapse share × addressability × recovery rate.", "Derived"),
+            ("Confidence", "High = 25+ evidence posts from 2+ sources; Medium = 10+; otherwise Low.", "Evidence"),
+        ], columns=["Term", "Definition", "Type"]),
+        hide_index=True, width="stretch",
+    )
+    scores, _, _ = evaluate(load_golden(), df)
+    pick = lambda label: scores.loc[scores["What is checked"].eq(label), "Agreement %"].iloc[0]  # noqa: E731
+    st.markdown("**Limitations a reviewer should weigh**")
+    st.markdown(
+        f"""
+- **Public posts, not Groww data.** Shares describe what people write about, not how many users lapse. The lapse rate
+  is an assumption until replaced with cohort data.
+- **Primary causes come from text rules.** On the hand-labelled golden set, the rules detect payment failures with
+  {pick('Instalment failed'):.0f}% agreement but identify *why* someone stops during a fall with only
+  {pick('Why they stop (driver)'):.0f}% agreement. Treat Payment & mandate reliability as solid and the
+  stop-moment areas as directional.
+- **Severity and addressability are judgement.** The Robustness view shows how much the ranking depends on them.
+- **Source mix:** {round((df['source'] == 'Reddit').mean() * 100)}% of posts are from Reddit, whose users are more
+  engaged than a typical first-time investor.
+        """
+    )
+
+
+def render_opportunity_tab(df: pd.DataFrame) -> None:
+    st.subheader("Opportunity sizing: which fix moves 12-month SIP continuation the most?")
+    st.markdown(
+        "Every post about stopping or lapsing gets one **primary cause** from its text. Causes are grouped into six "
+        "product opportunity areas, each tied to a branch of the metric, and sized with explicit assumptions."
+    )
+    overrides = render_opportunity_assumptions()
+    opps = opportunity_table(df, st.session_state["lapse_rate"] / 100, st.session_state["recovery_rate"] / 100,
+                             overrides)
+    opps.insert(0, "Rank", range(1, len(opps) + 1))
+    opps["Short name"] = opps["code"].map(OPP_SHORT)
+    top, second = opps.iloc[0], opps.iloc[1]
+    total = float(opps["Est. uplift (pp)"].sum())
+    lead = float(top["Est. uplift (pp)"]) / float(second["Est. uplift (pp)"]) if second["Est. uplift (pp)"] else 0
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Posts about stopping analysed", int(df["is_at_risk"].sum()))
+    k2.metric("Uplift from the #1 bet", f"+{top['Est. uplift (pp)']:.2f} pp", help=top["Opportunity"])
+    k3.metric("Lead over the #2 bet", f"{lead:.1f}×", help=second["Opportunity"])
+    k4.metric("All six bets combined", f"+{total:.2f} pp")
+    ratio = _opp_ratio(top)
+    st.success(
+        f"**{top['Opportunity']}** is the highest-leverage bet. It is the primary cause in "
+        f"{top['% of at-risk posts']:.0f}% of posts about stopping, is mentioned "
+        f"{f'{ratio}× more often' if ratio else 'far more often'} by people who stopped than by people who kept "
+        f"investing ({top['Mentioned in at-risk %']:.0f}% vs {top['% among continuers']:.0f}%), and is worth about "
+        f"+{top['Est. uplift (pp)']:.2f} pp: {lead:.1f}× the next bet, *{second['Opportunity']}*."
+    )
+
+    compare_t, deep_t, robust_t, branch_t, method_t = st.tabs(
+        ["Compare", "Deep dive", "Robustness", "Metric branches", "Method & limits"]
+    )
+    with compare_t:
+        render_opportunity_compare(opps)
+    with deep_t:
+        render_opportunity_deep_dive(df, opps)
+    with robust_t:
+        render_opportunity_robustness(df, opps, overrides)
+    with branch_t:
+        render_metric_branches_tab(df)
+    with method_t:
+        render_opportunity_method(df)
 
 
 def render_workflow_tab() -> None:
@@ -395,42 +1076,86 @@ def render_sidebar(df: pd.DataFrame) -> None:
             st.caption("AI reasoning: off (no API key) · computed reasoning only")
 
 
+EXPLORER_PAGE_SIZE = 20
+
+
+def _options(df: pd.DataFrame, col: str) -> list[str]:
+    return sorted(v for v in df[col].unique() if v and v != "unknown")
+
+
 def render_browse_tab(df: pd.DataFrame) -> None:
-    st.subheader("Browse posts")
-    st.caption("Every post the engine uses, with its inferred cause. Open the link to read the original.")
+    st.subheader("Evidence explorer")
+    st.caption("Every post the engine uses, with where it came from, how it was tagged and whether a human has "
+               "checked it. Open the source to read the original.")
     labels = {t.code: t.label for t in STOP_REASONS}
     labels["unclear"] = "Reason not stated"
-    c1, c2 = st.columns(2)
-    sel_r = c1.multiselect("Primary cause", list(labels), format_func=labels.get)
-    sel_b = c2.multiselect(
-        "Metric branch", sorted(df["metric_branch"].unique()), format_func=lambda x: METRIC_BRANCH_LABELS.get(x, x)
-    )
-    c3, c4, c5 = st.columns([2, 1, 2])
-    cohort = c3.radio("Group", ["All", COHORT_TARGET, COHORT_COMPARISON], horizontal=True)
-    only_risk = c4.checkbox("Only posts about stopping")
-    q = c5.text_input("Keyword")
+    pretty = lambda v: v.replace("_", " ").capitalize()  # noqa: E731
+
+    q = st.text_input("Search by keyword", key="ex_q", placeholder="e.g. autopay, salary account, crash")
+    c1, c2, c3 = st.columns(3)
+    sel_src = c1.multiselect("Source", _options(df, "source"), key="ex_src")
+    sel_r = c2.multiselect("Primary cause", list(labels), format_func=labels.get, key="ex_cause")
+    sel_b = c3.multiselect("Metric branch", sorted(df["metric_branch"].unique()),
+                           format_func=lambda x: METRIC_BRANCH_LABELS.get(x, x), key="ex_branch")
+    c4, c5, c6 = st.columns(3)
+    sel_beh = c4.multiselect("Behaviour", _options(df, "behaviour"), format_func=pretty, key="ex_beh")
+    sel_life = c5.multiselect("Journey stage", _options(df, "lifecycle"), format_func=pretty, key="ex_life")
+    sel_emo = c6.multiselect("Emotion", _options(df, "emotion"), format_func=pretty, key="ex_emo")
+    years = df["year"].dropna()
+    c7, c8, c9 = st.columns([2, 2, 1])
+    lo, hi = int(years.min()), int(years.max())
+    yr = c7.slider("Publication year", lo, hi, (lo, hi), key="ex_year")
+    cohort = c8.radio("Group", ["All", COHORT_TARGET, COHORT_COMPARISON], horizontal=True, key="ex_group")
+    as_table = c9.toggle("Table", key="ex_table", help="Switch between cards and a table")
+    f1, f2, f3 = st.columns(3)
+    only_risk = f1.checkbox("Only posts about stopping", key="ex_risk")
+    only_golden = f2.checkbox(f"Only the {GOLDEN_HUMAN.lower()}", key="ex_golden")
+    undated = f3.checkbox("Include posts without a date", value=True, key="ex_undated")
+
     view = df
+    if q:
+        view = view[view["content"].str.contains(re.escape(q), case=False, na=False)]
+    for col, sel in (("source", sel_src), ("primary_reason", sel_r), ("metric_branch", sel_b),
+                     ("behaviour", sel_beh), ("lifecycle", sel_life), ("emotion", sel_emo)):
+        if sel:
+            view = view[view[col].isin(sel)]
     if cohort != "All":
         view = view[view["cohort"] == cohort]
-    if sel_r:
-        view = view[view["primary_reason"].isin(sel_r)]
-    if sel_b:
-        view = view[view["metric_branch"].isin(sel_b)]
+    in_range = view["year"].between(*yr)
+    view = view[in_range | (view["year"].isna() & undated)]
     if only_risk:
         view = view[view["is_at_risk"]]
-    if q:
-        view = view[view["content"].str.contains(q, case=False, na=False)]
-    view = view.assign(cause=view["primary_reason"].map(labels))
-    st.dataframe(
-        view[["item_id", "cohort", "source", "cause", "stop_class", "post_snippet", "url"]].rename(
-            columns={"item_id": "ID", "cohort": "Group", "source": "Source", "cause": "Inferred cause",
-                     "stop_class": "Kind of stop", "post_snippet": "Post", "url": "Link"}
-        ),
-        hide_index=True,
-        width="stretch",
-        column_config={"Link": st.column_config.LinkColumn(display_text="open")},
-    )
-    st.caption(f"{len(view)} of {len(df)} posts")
+    if only_golden:
+        view = view[view["in_golden"]]
+    view = view.sort_values("published", ascending=False)
+
+    pages = max(1, -(-len(view) // EXPLORER_PAGE_SIZE))
+    p1, p2 = st.columns([1, 4])
+    page = int(p1.number_input("Page", 1, pages, 1, key=f"ex_page_{len(view)}"))
+    start = (page - 1) * EXPLORER_PAGE_SIZE
+    chunk = view.iloc[start:start + EXPLORER_PAGE_SIZE]
+    p2.caption(f"{len(view)} of {len(df)} posts · newest first · showing {start + 1 if len(view) else 0}–"
+               f"{start + len(chunk)} · page {page} of {pages}")
+    if view.empty:
+        st.info("No posts match these filters.")
+        return
+    if as_table:
+        st.dataframe(
+            chunk.assign(cause=chunk["primary_reason"].map(labels))[
+                ["item_id", "published", "source", "cohort", "cause", "behaviour", "quote_check", "in_golden",
+                 "post_snippet", "url"]
+            ].rename(columns={"item_id": "ID", "published": "Published", "source": "Source", "cohort": "Group",
+                              "cause": "Inferred cause", "behaviour": "Behaviour", "quote_check": "Quote check",
+                              "in_golden": "Golden set", "post_snippet": "Post", "url": "Link"}),
+            hide_index=True, width="stretch",
+            column_config={"Link": st.column_config.LinkColumn(display_text="open")},
+        )
+    else:
+        for _, p in chunk.iterrows():
+            render_post_card(p)
+    st.download_button("Download the filtered posts (CSV)",
+                       view.drop(columns=[c for c in view.columns if c.startswith(("t_", "_"))]).to_csv(index=False),
+                       file_name="evidence_filtered.csv")
 
 
 def render_discovery_tab(df: pd.DataFrame) -> None:
@@ -460,6 +1185,7 @@ def render_discovery_tab(df: pd.DataFrame) -> None:
         disabled=not cfg.get("api_key"),
         help=None if cfg.get("api_key") else "Set ANTHROPIC_API_KEY in .env or Streamlit secrets.",
     )
+    render_guard_tests()
     if st.session_state.discovery_question:
         st.divider()
         render_reasoned_results(df, st.session_state.discovery_question, use_llm)
@@ -593,7 +1319,8 @@ def _problem_mandate(m: dict) -> None:
         with left:
             st.markdown("**What users actually report when the payment fails**")
             st.bar_chart(m["reports"].set_index("What users report")["Posts"], horizontal=True, y_label="",
-                         x_label="Posts")
+                         x_label="Posts", color=BRAND)
+            table_view(m["reports"])
         with right:
             st.markdown("**Reading the chart**")
             unstated = m["reports"].iloc[-1]["% of payment-failure posts"]
@@ -681,7 +1408,8 @@ def _problem_panic(p: dict) -> None:
         with left:
             st.markdown("**How often each group mentions a market fall**")
             st.bar_chart(p["by_group"].set_index("Group")["% mentioning a market fall"], horizontal=True,
-                         y_label="", x_label="% of the group's posts")
+                         y_label="", x_label="% of the group's posts", color=BRAND)
+            table_view(p["by_group"])
         with right:
             st.markdown("**Reading the chart**")
             st.markdown(
@@ -800,7 +1528,7 @@ def main() -> None:
 
     tabs = st.tabs(
         ["Overview", "Problem validation", "Ask the engine", "Opportunity sizing", "Evidence & validation",
-         "Browse posts", "How it works"]
+         "Evidence explorer", "How it works"]
     )
     with tabs[0]:
         render_overview(df)
@@ -810,8 +1538,6 @@ def main() -> None:
         render_discovery_tab(df)
     with tabs[3]:
         render_opportunity_tab(df)
-        st.divider()
-        render_metric_branches_tab(df)
     with tabs[4]:
         render_evidence_log(df)
     with tabs[5]:
@@ -853,7 +1579,9 @@ def render_metric_branches_tab(df: pd.DataFrame) -> None:
     with c1:
         st.markdown("**What triggered the stop (codebook trigger)**")
         stated = risk[~risk["trigger"].isin(["none_obvious", "other", "unknown"])]
-        st.bar_chart(stated["trigger"].map(plain_trigger).value_counts(), horizontal=True)
+        triggers = stated["trigger"].map(plain_trigger).value_counts()
+        st.bar_chart(triggers, horizontal=True, color=BRAND)
+        table_view(triggers.rename_axis("Trigger").reset_index(name="Posts"))
         st.caption(f"{len(risk) - len(stated)} of {len(risk)} posts about stopping state no trigger and are left out.")
     with c2:
         st.markdown("**How often each group posts about stopping**")
@@ -863,7 +1591,8 @@ def render_metric_branches_tab(df: pd.DataFrame) -> None:
             .reindex(levels).fillna(0).mul(100).round(1)
         )
         share.index = [LAPSE_PLAIN[l] for l in levels]
-        st.bar_chart(share, horizontal=True, stack=False)
+        st.bar_chart(share, horizontal=True, stack=False, color=[CB_ORANGE, CB_BLUE][: share.shape[1]])
+        table_view(share.rename_axis("Link to lapse").reset_index())
         not_stop = (
             pd.crosstab(df["link_to_lapse"], df["cohort"], normalize="columns").reindex(["none"]).fillna(0).mul(100)
         )
@@ -920,18 +1649,89 @@ def render_selection_funnel() -> None:
     )
 
 
+def render_data_quality(df: pd.DataFrame) -> None:
+    log = load_selection_log()
+    v = provenance()
+    dated = df["year"].notna()
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Posts in the corpus", len(df), help=f"Dataset version {v['dataset']}")
+    m2.metric("With a publication date", f"{dated.mean() * 100:.0f}%",
+              help=f"{int((df['precision'] == 'month').sum())} YouTube posts are dated to the month only")
+    m3.metric("Quotes found verbatim", f"{(df['quote_check'] == 'Verbatim').mean() * 100:.0f}%",
+              help="The codebook quote the AI extracted appears word-for-word in the post")
+    m4.metric("Missing source link", int((df["url"].str.strip() == "").sum()))
+    m5.metric(f"In the {GOLDEN_HUMAN.lower()}", int(df["in_golden"].sum()),
+              help=f"{int(df['golden_verified'].sum())} verified by a human so far; the rest await verification")
+
+    pooled = log["source"].value_counts() if not log.empty else pd.Series(dtype=int)
+    rows = []
+    for src, g in df.groupby("source"):
+        method, terms = SOURCE_METHODS.get(src, ("Unknown", ""))
+        y = g["year"].dropna()
+        rows.append({
+            "Source": src,
+            "Posts pooled": int(pooled.get(src, 0)),
+            "In corpus": len(g),
+            "Share of corpus %": round(len(g) / len(df) * 100, 1),
+            "First-time / young": int((g["cohort"] == COHORT_TARGET).sum()),
+            "Published": f"{int(y.min())}–{int(y.max())}" if len(y) else "unknown",
+            "Collection method (collect.py)": method,
+            "Terms and caveats": terms,
+        })
+    sources = pd.DataFrame(rows).sort_values("In corpus", ascending=False)
+    st.dataframe(sources, hide_index=True, width="stretch",
+                 column_config={"Share of corpus %": st.column_config.ProgressColumn(min_value=0, max_value=100,
+                                                                                    format="%.1f%%")})
+    st.caption("A source is listed only if posts from it reached the corpus. Pooled = posts entering the first-time "
+               "selection pipeline, before the relevance, own-experience and first-time filters; comparison posts "
+               "come from the earlier SIP corpus.")
+
+    st.markdown("**Posts by publication year**")
+    by_year = df.loc[dated, "year"].astype(int).value_counts().sort_index()
+    st.bar_chart(by_year, color=BRAND, x_label="Publication year", y_label="Posts")
+    table_view(by_year.rename_axis("Year").reset_index(name="Posts"))
+    st.caption(f"n = {int(dated.sum())} dated posts. Reflects what was collected and selected, not how much people "
+               "posted each year.")
+
+    scores, _, _ = evaluate(load_golden(), df)
+    pick = lambda label: scores.loc[scores["What is checked"].eq(label), "Agreement %"].iloc[0]  # noqa: E731
+    with st.container(border=True):
+        st.markdown("**How to read this dataset**")
+        st.markdown(
+            f"""
+- **Selection bias:** public posts over-represent people with problems, and keyword searches over-select stop,
+  pause and autopay threads. Nothing here measures how common a behaviour is among all investors.
+- **Not a random sample:** posts were filtered for first-time / young investors and topped up with a comparison
+  group, so shares describe this corpus, not Groww's users.
+- **Tags are AI output:** every post was coded by `{v['coding_model']}` against `codebook.json` (screening by
+  `{v['screen_model']}`); causes come from auditable text rules. On the hand-labelled golden set the rules agree
+  {pick('Instalment failed'):.0f}% on payment failure but only {pick('Why they stop (driver)'):.0f}% on why people
+  stop in a fall.
+- **Human review:** {int(df['in_golden'].sum())} posts are hand-labelled in the golden set,
+  {int(df['golden_verified'].sum())} of them verified by a human so far; the other {len(df) - int(df['in_golden'].sum())}
+  carry AI tags only.
+- **Small samples:** answers need at least {MIN_EVIDENCE} matching posts, and anything resting on fewer than
+  {SMALL_SAMPLE} is labelled a small sample. Only {int(df['is_continuer'].sum())} posts come from investors who
+  continued, so every stopper-vs-continuer contrast is directional.
+            """
+        )
+
+
 def render_evidence_log(df: pd.DataFrame) -> None:
     st.subheader("Evidence & validation")
     st.caption("How posts were selected, how the AI's labels were checked, and how to verify any insight.")
 
-    st.markdown("#### 1. How the corpus was selected")
+    st.markdown("#### 1. Sources and data quality")
+    render_data_quality(df)
+
+    st.markdown("#### 2. How the corpus was selected")
     render_selection_funnel()
     st.caption(
         f"The {int((df['cohort'] == COHORT_COMPARISON).sum())} comparison posts (other investors) come from the "
         "earlier SIP corpus, so each first-timer pattern can be contrasted with the wider population."
     )
 
-    st.markdown("#### 2. How well causes are identified")
+    st.markdown("#### 3. How well causes are identified")
     c1, c2, c3, c4 = st.columns(4)
     risk = df[df["is_at_risk"]]
     c1.metric("Posts about stopping", len(risk))
@@ -941,29 +1741,101 @@ def render_evidence_log(df: pd.DataFrame) -> None:
     c3.metric("Trigger stated by LLM codebook", f"{round(stated.mean() * 100, 1)}%")
     c4.metric("Reddit share", f"{round((df['source'] == 'Reddit').mean() * 100, 1)}%", help="Source bias to keep in mind")
 
-    st.markdown("#### 3. Validation protocol")
+    render_golden_set(df)
+
+    st.markdown("#### 5. Validation protocol")
     st.markdown(
         """
-1. **Label quality:** hand-label the 20-post sample below; record agreement with the engine's cause and 2–3 misses.
+1. **Label quality:** the golden set above is scored automatically; every miss is listed with the reason.
 2. **Insight quality:** for each answer in *Ask the engine*, open 3 cited posts and check they support the claim.
 3. **Challenge test:** check counter-intuitive claims (e.g. themes equally common among continuers) in interviews.
 4. **Primary research:** the *Validate next* hypotheses in each answer become the interview guide.
         """
     )
-    st.markdown("**Random sample for hand-labelling** (fixed seed, reproducible)")
-    sample = risk.sample(min(20, len(risk)), random_state=42)
+
+
+def render_golden_set(df: pd.DataFrame) -> None:
+    golden = load_golden()
+    issues = validate(golden, df)
+    scores, misses, joined = evaluate(golden, df)
+    c = summary_counts(golden)
+    rows_checked = int(scores["Rows"].sum())
+    agree_cells = int((scores["Rows"] * scores["Agreement %"] / 100).round().sum())
+
+    st.markdown(f"#### 4. Golden set: {c['rows']} hand-labelled posts for the two hypotheses")
+    st.caption(
+        f"{c['p2']} posts for Problem 2 (panic stop in a market fall, the priority) and {c['p1']} for Problem 1 "
+        "(payment / mandate failure). Chosen on purpose, not at random: core cases, early signals, hard negatives "
+        "that fool keyword rules, and counter-evidence against the proposed solution. Each row carries an evidence "
+        "quote from the post and the labeller's reasoning."
+    )
+    if issues:
+        st.warning("Golden set issues: " + "; ".join(issues))
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Posts labelled", c["rows"])
+    m2.metric("Label checks", rows_checked)
+    m3.metric("Engine agreement", f"{round(agree_cells / rows_checked * 100, 1)}%")
+    m4.metric("Disagreements", len(misses))
+
     st.dataframe(
-        sample[["item_id", "primary_reason", "stop_class", "trigger", "url", "post_snippet"]],
+        scores,
         hide_index=True,
         width="stretch",
+        column_config={
+            "Agreement %": st.column_config.ProgressColumn("Agreement %", min_value=0, max_value=100, format="%.0f%%"),
+            "Precision %": st.column_config.NumberColumn(format="%.0f%%"),
+            "Recall %": st.column_config.NumberColumn(format="%.0f%%"),
+        },
     )
-    st.download_button(
-        "Download sample as CSV",
-        sample[["item_id", "primary_reason", "stop_class", "trigger", "url", "post_text"]]
-        .assign(human_label="", agree="")
-        .to_csv(index=False),
-        file_name="evidence_log_sample.csv",
-    )
+    fit_n = c["p2_nudge_yes"] + c["p2_nudge_partial"] + c["p2_nudge_no"]
+    fall_stop_precision = float(scores.loc[
+        scores["What is checked"].eq("Stop caused by the fall") & scores["Engine method"].str.startswith("Text"),
+        "Precision %"].iloc[0])
+    with st.container(border=True):
+        st.markdown("**What hand-labelling changed in the conclusions**")
+        st.markdown(
+            f"""
+- **A fall plus a stop is not panic.** Of {c['p2_stop']} Problem 2 posts that stop, pause, reduce or weigh stopping,
+  only **{c['p2_stop_fall_emotion']}** are an emotional reaction to a fall. {c['p2_stop_timing']} are deliberate
+  market timing, {c['p2_stop_fund']} blame a specific fund and {c['p2_stop_cash']} need the cash. When the
+  keyword rule flags "stop caused by a fall" it is right only {fall_stop_precision:.0f}% of the time.
+- **The proposed nudge fits a narrow slice.** Showing how many investors kept their SIP fully answers the concern in
+  **{c['p2_nudge_yes']} of {fit_n}** posts, partly in {c['p2_nudge_partial']}, and not at all in {c['p2_nudge_no']}
+  (timers, fund-specific exits, cash needs). Only {c['p2_seeks_peer']} posts explicitly ask what others are doing.
+- **Two design risks surfaced:** comparing with peers' *returns* demotivated a student (post 659), so show
+  behaviour, never returns; and a user in debt (post 1093) must not be nudged to continue.
+- **For Problem 1, the account matters more than the job change.** No failure post blames a job change, but
+  {c['p1_two_account']} of {c['p1_failures']} failures happen because salary lands in a different account from the SIP mandate;
+  {c['p1_not_notified']} users were not told in time and {c['p1_fixable']} could have fixed it with the right
+  prompt. The engine has no code for this yet.
+            """
+        )
+
+    with st.expander(f"Where the engine disagreed with the human labels ({len(misses)})"):
+        st.dataframe(
+            misses,
+            hide_index=True,
+            width="stretch",
+            column_config={"url": st.column_config.LinkColumn("Post", display_text="open")},
+        )
+    with st.expander("Codebook (label definitions)"):
+        st.dataframe(
+            pd.DataFrame([{"Field": f, "Definition": d, "Allowed values": ", ".join(v)} for f, (d, v) in CODEBOOK.items()]),
+            hide_index=True,
+            width="stretch",
+        )
+    with st.expander("Full golden set"):
+        view = golden.merge(df[["item_id", "cohort", "source", "url"]], on="item_id", how="left")
+        st.dataframe(view, hide_index=True, width="stretch",
+                     column_config={"url": st.column_config.LinkColumn("Post", display_text="open")})
+        st.download_button("Download golden set (CSV)", view.to_csv(index=False), file_name="golden_set.csv")
+        st.download_button(
+            "Download engine-vs-human comparison (CSV)",
+            joined.drop(columns=[col for col in joined.columns if col.startswith("t_") or col in ("content", "_blob")])
+            .to_csv(index=False),
+            file_name="golden_set_engine_comparison.csv",
+        )
 
 
 if __name__ == "__main__":

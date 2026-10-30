@@ -11,7 +11,7 @@ cp .env.example .env          # then set ANTHROPIC_API_KEY (needed only for AI r
 python3 -m streamlit run app.py
 ```
 
-Ask a question in **Discovery Q&A** (or click a sample question in the sidebar). **Computed reasoning** is instant and needs no key; **AI reasoning** streams from `ANTHROPIC_MODEL` (use `MiniMax-M2.7-highspeed` on the PenPencil gateway).
+Ask a question in **Ask the engine** (or click one of the nine discovery questions). Answers need at least 3 matching posts and are labelled a small sample below 30; every answer shows the dataset, rules and prompt versions it came from. **Computed reasoning** is instant and needs no key; **AI reasoning** streams from `ANTHROPIC_MODEL` (use `MiniMax-M2.7-highspeed` on the PenPencil gateway).
 
 ## Rebuild the corpus
 
@@ -42,6 +42,9 @@ Outputs:
 | `reasoning.py` | Question routing, cause taxonomy, lift, opportunity sizing, evidence pack |
 | `rule_based_narrative.py` | Computed (non-AI) answer |
 | `hypotheses.py` | Tests the two PM problem hypotheses (evidence for / against, mechanism, reframing) |
+| `golden_set_eval.py`, `data/golden_set.csv` | Hand-labelled golden set (35 posts, both hypotheses) and engine-vs-human scoring; run `python3 golden_set_eval.py` |
+| `question_guard.py`, `data/question_guard_tests.csv` | Checks each question before answering: declines personal advice, account support, fear/FOMO tactics, off-topic and "how common among all investors" questions, and flags "would this feature help?" questions; run `python3 question_guard.py` |
+| `build_post_dates.py`, `data/post_dates.csv` | Publication date of every corpus post, joined by URL from the source files; rerun after rebuilding the corpus |
 | `llm_client.py` | Gateway client + streaming for AI reasoning |
 | `discovery_analytics.py`, `plain_labels.py` | Metric branches and plain-English labels |
 | `build_corpus.py` | Builds the dataset (filters, LLM screen, merge) |
