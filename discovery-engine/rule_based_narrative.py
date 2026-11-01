@@ -9,6 +9,11 @@ import pandas as pd
 from reasoning import SMALL_SAMPLE, STOP_CLASSES, STOP_REASONS
 
 HYPOTHESES: dict[str, tuple[str, str]] = {
+    "first_sip_success": (
+        "Many first SIPs never get a successful instalment because a KYC, mandate or order problem blocks them "
+        "and the investor isn't told the one fix.",
+        "Wrong if most first-instalment failures clear on their own within days without the user acting.",
+    ),
     "payment_reliability": (
         "Most lapses after a failed debit happen because the investor did not notice the failure, "
         "not because they chose to stop.",

@@ -244,8 +244,8 @@ def build() -> str:
         "- Public posts are not a random sample of investors; shares are of posts, not people.",
         f"- Few first-time investors post about stopping ({int((risk['cohort'] == target).sum())} posts), so "
         "first-time splits are hypotheses for the interviews, not measurements.",
-        "- Uplift estimates combine post shares with editable assumptions (lapse rate, recovery, severity, "
-        "addressability); Groww cohort data would replace them.",
+        "- Uplift estimates combine post shares with fixed assumptions (40% lapse rate, 30% recovery, "
+        "addressability per opportunity); Groww cohort data would replace them.",
         f"- The golden set is small ({len(golden)} rows) and checked by one person"
         + (f"; {len(golden) - verified} rows still await that check." if verified < len(golden) else "."),
     ]

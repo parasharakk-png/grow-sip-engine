@@ -15,7 +15,7 @@ from textwrap import wrap
 
 import pandas as pd
 
-from reasoning import opportunity_table
+from reasoning import OPPORTUNITIES, opportunity_table
 
 ENGINE_DIR = Path(__file__).resolve().parent
 EXPORT_SVG = ENGINE_DIR / "exports" / "metric_decomposition.svg"
@@ -40,10 +40,11 @@ BRANCHES: list[Branch] = [
     Branch(
         "0", "Activation",
         "The first SIP is set up and the first instalment succeeds",
-        ("Completes the autopay mandate", "Has balance on the first debit date", "Knows when the first debit is"),
+        ("Completes KYC and the autopay mandate", "Has balance on the first debit date",
+         "Learns why a first order was rejected"),
         "% of first SIPs whose first instalment succeeds",
         "Mandate registration success; first-debit success by bank",
-        (),
+        ("first_sip_success",),
     ),
     Branch(
         "A", "Involuntary lapse",
@@ -88,6 +89,9 @@ RECOVERY = (
 
 # Every opportunity reached when the investor opens the pause / stop controls.
 STOP_MOMENT = ("control_clarity", "cash_flexibility", "decision_support", "switch_without_gap")
+PAYMENT_CODES = ("0", "A")
+# Problem 1: every SIP lost to a failed payment, whether the first instalment or a later one.
+PAYMENT_TRACK = ("first_sip_success", "payment_reliability")
 
 METRIC_MECHANICS = [
     "**One failure is enough.** A monthly SIP with a single failed or skipped instalment in the measurement "
@@ -134,12 +138,18 @@ def focus_comparison(
     for k, g in {"all": df, "ft": df[df["cohort"] == TARGET_COHORT]}.items():
         t = opportunity_table(g, lapse_rate, recovery_rate, overrides).set_index("code")
         out[k] = {
-            "payment": round(float(t.loc["payment_reliability", "Est. uplift (pp)"]), 2),
+            "payment": round(float(t.loc[list(PAYMENT_TRACK), "Est. uplift (pp)"].sum()), 2),
             "stop_moment": round(float(t.loc[list(STOP_MOMENT), "Est. uplift (pp)"].sum()), 2),
-            "payment_pct": round(float(t.loc["payment_reliability", "% of at-risk posts"]), 1),
+            "payment_pct": round(float(t.loc[list(PAYMENT_TRACK), "% of at-risk posts"].sum()), 1),
             "stop_moment_pct": round(float(t.loc[list(STOP_MOMENT), "% of at-risk posts"].sum()), 1),
             "risk_n": int(g["is_at_risk"].sum()),
+            "cont_n": int(g["is_continuer"].sum()),
         }
+        for key, codes in (("payment", PAYMENT_TRACK), ("stop_moment", STOP_MOMENT)):
+            tags = [f"t_{r}" for o in OPPORTUNITIES if o.code in codes for r in o.reasons]
+            cont = g[g["is_continuer"]]
+            out[k][f"{key}_n"] = int(t.loc[list(codes), "Evidence posts"].sum())
+            out[k][f"{key}_cont_pct"] = round(float(cont[tags].any(axis=1).mean() * 100), 1) if len(cont) else 0.0
     return out
 
 
@@ -152,7 +162,13 @@ def lead_phrase(stop_moment: float, payment: float) -> str:
     return f"payment failure leads (+{payment:.1f} vs +{stop_moment:.1f} pp for the stop moment)"
 
 
-def slide_title(focus: dict[str, dict[str, float]]) -> str:
+def slide_title(focus: dict[str, dict[str, float]], dec: dict | None = None) -> str:
+    if dec and dec.get("verdict") == "Keep the stop-moment focus":
+        return (f"Focus on the stop decision: the risky moment in {dec['stop_n']} of {dec['n']} interviews; "
+                "fix failed payments in parallel")
+    if dec and dec.get("verdict") == "Switch focus to payment reliability":
+        return (f"Focus on failed payments: the risky moment in {dec['pay_n']} of {dec['n']} interviews; "
+                "support the stop decision in parallel")
     f = focus["ft"]
     if abs(f["stop_moment"] - f["payment"]) < 0.5:
         return "First SIPs end at a failed payment and at the stop decision in similar measure"
@@ -272,7 +288,7 @@ def tree_svg(sizes: pd.DataFrame, focus: dict[str, dict[str, float]], lapse_rate
                      f'stroke="#D1D5DB" stroke-width="1.5"/>')
         if b.code in focus_codes:
             stroke, dash, sw, head = CB_BLUE, "", 4, CB_BLUE
-        elif b.code == "A":
+        elif b.code in PAYMENT_CODES:
             stroke, dash, sw, head = CB_ORANGE, ' stroke-dasharray="10 6"', 3, CB_ORANGE
         else:
             stroke, dash, sw, head = "#9CA3AF", "", 1.5, GREY
@@ -301,15 +317,11 @@ def tree_svg(sizes: pd.DataFrame, focus: dict[str, dict[str, float]], lapse_rate
 
         fy = cy + ch - 62
         parts.append(f'<line x1="{x + 14}" y1="{fy - 16}" x2="{x + cw - 14}" y2="{fy - 16}" stroke="#E5E7EB"/>')
-        if b.code == "0":
-            parts.append(_text(x + 14, fy, ["Before the stop corpus —", "measure with Groww data"], 13, "normal",
-                               GREY))
-        else:
-            r = by_code.loc[b.code]
-            parts.append(_text(x + 14, fy, [f"Stop posts: {r['pct_stop_all']:.0f}% all · {r['pct_stop_ft']:.0f}% "
-                                            f"first-time"], 13, "bold"))
-            parts.append(_text(x + 14, fy + 20, [f"Est. uplift: +{r['uplift_all']:.1f} pp all · "
-                                                 f"+{r['uplift_ft']:.1f} pp first-time"], 13))
+        r = by_code.loc[b.code]
+        parts.append(_text(x + 14, fy, [f"Stop posts: {r['pct_stop_all']:.0f}% all · {r['pct_stop_ft']:.0f}% "
+                                        f"first-time"], 13, "bold"))
+        parts.append(_text(x + 14, fy + 20, [f"Est. uplift: +{r['uplift_all']:.1f} pp all · "
+                                             f"+{r['uplift_ft']:.1f} pp first-time"], 13))
 
     # Bracket over the stop-moment branches
     xs = [margin + i * (cw + gap_x) for i, b in enumerate(BRANCHES) if b.code in focus_codes]
@@ -320,9 +332,10 @@ def tree_svg(sizes: pd.DataFrame, focus: dict[str, dict[str, float]], lapse_rate
     parts.append(_text((x0 + x1) / 2, bracket_y + 5,
                        [f"THE STOP MOMENT — research & MVP focus: +{focus['all']['stop_moment']:.1f} pp all · "
                         f"+{focus['ft']['stop_moment']:.1f} pp first-time"], 15, "bold", CB_BLUE, "middle"))
-    ax = margin + (cw + gap_x)
-    parts.append(_text(ax + cw / 2, bracket_y + 5, ["LARGEST SINGLE CAUSE — fix in parallel"], 13, "bold", "#92400E",
-                       "middle"))
+    px = [margin + i * (cw + gap_x) for i, b in enumerate(BRANCHES) if b.code in PAYMENT_CODES]
+    parts.append(_text((px[0] + px[-1] + cw) / 2, bracket_y + 5,
+                       [f"FAILED PAYMENTS — fix in parallel: +{focus['all']['payment']:.1f} pp all · "
+                        f"+{focus['ft']['payment']:.1f} pp first-time"], 13, "bold", "#92400E", "middle"))
 
     # Recovery bar + footnote
     ry = cy + ch + 22
@@ -351,7 +364,9 @@ if __name__ == "__main__":
     data = app.load_posts()
     sizes, focus = branch_sizes(data), focus_comparison(data)
     EXPORT_SVG.parent.mkdir(exist_ok=True)
-    EXPORT_SVG.write_text(tree_svg(sizes, focus, title=slide_title(focus)))
+    from interviews import decision, load_scorecard
+
+    EXPORT_SVG.write_text(tree_svg(sizes, focus, title=slide_title(focus, decision(load_scorecard()))))
     print(sizes.to_string())
     print(focus)
     print(f"wrote {EXPORT_SVG}")

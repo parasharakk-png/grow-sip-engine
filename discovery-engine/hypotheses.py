@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from reasoning import _pct, _snippet, opportunity_table
+from reasoning import NO_FAILURE, PAYMENT_SUBCAUSES, BANK_CHANGE, _pct, _snippet, opportunity_table
 
 TARGET = "Target: first-time investors"
 
@@ -25,12 +25,9 @@ MANDATE_REPORTS: list[tuple[str, str]] = [
     ("Insufficient balance / bounce charges",
      r"insufficient|bounce|ach debit return|return charges?|not enough (balance|money)"),
     ("Bank account changed, frozen or closed",
-     r"chang\w* (my |the )?bank( account)?|bank account (is |got )?(frozen|closed|changed)|account (is |got )?(frozen|closed)"
-     r"|new (bank|salary) account|salary account|update (my |the )?bank"),
+     BANK_CHANGE),
 ]
 JOB_CHANGE = r"(chang|switch)\w* (my )?(job|company|employer)|new job|job switch|left (my )?job|resign"
-BANK_CHANGE = MANDATE_REPORTS[-1][1]
-
 # ---------------------------------------------------------------- problem 2: panic in a market fall
 
 MARKET_FALL = (r"market (is )?(fall|crash|correction|down|dip|bleed)|crash|correction|falling|bear market|\bred\b"
@@ -54,6 +51,27 @@ def _quotes(df: pd.DataFrame, k: int = 3) -> list[dict[str, str]]:
          "url": r["url"]}
         for _, r in ranked.iterrows()
     ]
+
+
+def payment_subcause_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Payment-tagged posts split by sub-cause: all tagged posts, the sized (at-risk) set, and first-timers in it."""
+    pay = df[df["t_involuntary_system"]]
+    label = pay["payment_subcause"]
+    sets = {
+        "Sized posts (at risk)": pay["is_at_risk"],
+        "First-time, sized": pay["is_at_risk"] & (pay["cohort"] == TARGET),
+        "All payment-tagged": pd.Series(True, index=pay.index),
+    }
+    rows = []
+    for i, (group, name, mine) in enumerate([s[:3] for s in PAYMENT_SUBCAUSES] + [NO_FAILURE]):
+        idx = i if i < len(PAYMENT_SUBCAUSES) else -1
+        row = {"Group": group, "Sub-cause": name, "In my original list": mine}
+        for col, m in sets.items():
+            n = int((m & (label == idx)).sum())
+            row[col] = n
+            row[f"{col} %"] = _pct(n, int(m.sum()))
+        rows.append(row)
+    return pd.DataFrame(rows)
 
 
 def _opp_row(opps: pd.DataFrame, code: str) -> dict[str, Any]:
@@ -86,12 +104,14 @@ def mandate_hypothesis(df: pd.DataFrame, opps: pd.DataFrame) -> dict[str, Any]:
     mechanism = area[_mask(area, JOB_CHANGE) | _mask(area, BANK_CHANGE)]
     return {
         "opp": _opp_row(opps, "payment_reliability"),
+        "activation_opp": _opp_row(opps, "first_sip_success"),
         "area_n": len(area),
         "risk_n": len(risk),
         "pct_risk": _pct(len(area), len(risk)),
         "pct_cont": _pct(int(cont["t_involuntary_system"].sum()), len(cont)),
         "first_timer_n": int((area["cohort"] == TARGET).sum()),
         "reports": reports,
+        "subcauses": payment_subcause_table(df),
         "job_change_with_mandate": int((mentions_mandate & job).sum()),
         "bank_change_with_mandate": int((mentions_mandate & bank).sum()),
         "job_change_any": int(job.sum()),

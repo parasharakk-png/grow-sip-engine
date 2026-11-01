@@ -25,14 +25,75 @@ class Theme:
     stop_class: str = ""
 
 
+BANK_CHANGE = (r"chang\w* (my |the )?bank( account)?|bank account (is |got )?(frozen|closed|changed)"
+               r"|account (is |got )?(frozen|closed)|new (bank|salary) account|salary account|update (my |the )?bank")
+
+# One sub-cause per payment post: the first match wins, so explicit causes come before stages and the
+# catch-alls. Most patterns stay inside one sentence ([^.]) so a word elsewhere in a long post doesn't count.
+# (group, sub-cause, in my original list?, pattern)
+_FAIL = r"(fail|pending|reject|error|issue|problem|unable|can'?t|cannot|not able|doesn'?t (work|happen)|not (approved|registered|available|activ|work))"
+_SETUP = r"(set ?up|setup|activat|regist|generat|enabl|e-?mandate|auto[- ]?debit option)"
+PAYMENT_SUBCAUSES: list[tuple[str, str, str, str]] = [
+    ("First SIP never went live", "KYC not validated or pending", "No",
+     r"\bkyc\b[^.]{0,40}(not|pending|valid|reject|fail|nil|stuck|still)|(not|pending|reject\w*)[^.]{0,30}\bkyc\b"),
+    ("Running SIP debit failed", "Mandate limit, expiry or date mismatch", "No",
+     r"(autopay|auto pay|mandate|upi)[^.]{0,15}limit|mandate (has |got )?expir|due date[^.]{0,30}mandate"
+     r"|mandate start date|capping on|more than the (max|limit)"),
+    ("Running SIP debit failed", "Low or insufficient balance", "Yes",
+     r"insufficient|low balance|no (money|balance|funds) in|not enough (balance|money|funds)"
+     r"|(debit|mandate|payment|ach|nach|ecs)[^.]{0,20}bounce|bounce charges?|ach debit return|return charges?"),
+    ("Running SIP debit failed", "Old, closed or changed bank account", "Yes",
+     BANK_CHANGE + r"|(old|previous|closed|inactive|dormant) (bank )?account|switch\w* (my )?bank"),
+    ("Fund-house side", "Fund suspended or fund limit reached", "No",
+     r"overseas (investment )?limit|investment limit|suspend\w*|stopped (taking|accepting)"
+     r"|not accepting (new|fresh|sip|lump)|offshore.{0,120}(cancel|reject)"),
+    ("Money taken, SIP not invested", "Debited but units not allotted, or refund pending", "No",
+     r"(debited|deducted) but|(debited|deducted)[^.]{0,40}(not|no) (units|allot|invest|reflect|order)"
+     r"|refund|not allot|units? (not|weren'?t|were not) (allot|credit)|deducted (money )?(twice|thrice|multiple)"),
+    ("First SIP never went live", "Mandate or autopay setup failed or pending", "No",
+     _SETUP + r"[^.]{0,60}" + _FAIL + r"|(unable|can'?t|cannot|not able|fail\w*|problem|issue|error|tried|spent hours)[^.]{0,60}"
+     + _SETUP),
+    ("First SIP never went live", "First order or first instalment rejected", "No",
+     r"(first|1st|initial)[^.]{0,40}(instal\w*|order|sip|payment|txn|transaction|invest\w*)[^.]{0,80}(fail|reject|declin)"
+     r"|(order|sip)s? (is |was |were |got |has been )?(rejected|declined)|rejected [^.]{0,20}(after|due)"),
+    ("Cancelled or stopped without user action", "SIP cancelled, stopped or skipped by itself", "No",
+     r"cancell?ed (automatically|without)|got cancell?ed|(stopped|cancell?ed) automatically|got stopped"
+     r"|without (my |any )?(action|permission)|never requested|(sip|instal\w*|autopay)[^.]{0,20}skipped"),
+    ("System failure", "Server, payment gateway, bank or app error", "Yes (merged)",
+     r"server|gateway|technical (issue|error|glitch|problem)|glitch|\bbugs?\b|buggy|outage|downtime|\bnpci\b"
+     r"|razorpay|app (is )?(down|crash)|something went wrong|(showing|throw\w*|got an?) error"),
+    ("Running SIP debit failed", "Failed, no reason given", "—",
+     r"fail|reject|declin|not deducted|not (being )?debited|not working|stopped working"),
+]
+NO_FAILURE = ("No failure described", "Question about how autopay or mandates work", "—")
+ACTIVATION_GROUP = "First SIP never went live"
+
+
+def payment_subcause(df: pd.DataFrame) -> pd.Series:
+    """Index into PAYMENT_SUBCAUSES of each post's first matching sub-cause (-1 = no failure described)."""
+    out = pd.Series(-1, index=df.index)
+    text = df["post_clean"].str.lower()
+    for i, (*_, pattern) in enumerate(PAYMENT_SUBCAUSES):
+        out = out.mask((out == -1) & text.str.contains(pattern, regex=True), i)
+    return out
+
+
 # Order matters: first match becomes the post's primary reason (most specific first).
 STOP_REASONS: list[Theme] = [
+    Theme(
+        "activation_failure",
+        "First SIP never went live (KYC, mandate setup, first order)",
+        "|".join(p for g, *_, p in PAYMENT_SUBCAUSES if g == ACTIVATION_GROUP),
+        "The first SIP is created but never gets a successful instalment: KYC isn't validated, the mandate "
+        "never registers, or the first order is rejected. The investor never becomes active.",
+        "involuntary",
+    ),
     Theme(
         "involuntary_system",
         "Payment, mandate or platform stopped the SIP",
         r"mandate|autopay|auto[- ]?pay|auto[- ]?debit|declined|rejected|sip failed|failed (sip|debit|instal)"
         r"|bounce|not deducted|cancell?ed (automatically|without)|never requested|without (my )?(permission|consent)"
-        r"|step-?up|\bkyc\b|got cancelled|(stopped|cancelled) automatically|expired",
+        r"|got cancelled|(stopped|cancelled) automatically",
         "A debit fails, a mandate is revoked, or the platform closes the SIP. The investor did not "
         "decide to stop, and often only notices weeks later.",
         "involuntary",
@@ -211,6 +272,17 @@ class Opportunity:
 
 OPPORTUNITIES: list[Opportunity] = [
     Opportunity(
+        "first_sip_success", "First SIP goes live (first instalment succeeds)",
+        ("activation_failure",), "0 — Activation",
+        0.9, 0.8,
+        "Track every new SIP until its first instalment succeeds; name the blocker (KYC pending, mandate not "
+        "registered, order rejected) with the one fix; let the first instalment go through by UPI while the "
+        "mandate registers.",
+        "% of first SIPs whose first instalment succeeds within 7 days of setup; days from setup to first success.",
+        "Show a 'first instalment' tracker with the blocking reason and a one-tap fix to half of new first-time "
+        "SIPs; compare first-instalment success within 7 days and active SIPs at 90 days.",
+    ),
+    Opportunity(
         "payment_reliability", "Payment & mandate reliability",
         ("involuntary_system",), "A — Involuntary lapse",
         0.9, 0.9,
@@ -297,6 +369,10 @@ def tag_themes(df: pd.DataFrame) -> pd.DataFrame:
     for lens in (STOP_REASONS, START_MOTIVES, CHECKING, OUTSIDE_APP):
         for t in lens:
             out[f"t_{t.code}"] = blob.str.contains(t.pattern, regex=True)
+    # Activation is a stage of payment failure: only payment posts whose sub-cause is in that group count.
+    out["payment_subcause"] = payment_subcause(out).where(out["t_involuntary_system"], -1)
+    groups = [g for g, *_ in PAYMENT_SUBCAUSES]
+    out["t_activation_failure"] = out["payment_subcause"].map(lambda i: i >= 0 and groups[i] == ACTIVATION_GROUP)
 
     def primary(row: pd.Series) -> str:
         for t in STOP_REASONS:
@@ -316,7 +392,7 @@ def tag_themes(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _stop_class(row: pd.Series) -> str:
-    if row["t_involuntary_system"] or row["t_fund_suspension"]:
+    if row["t_activation_failure"] or row["t_involuntary_system"] or row["t_fund_suspension"]:
         return "involuntary"
     if row["t_control_friction"]:
         return "friction"
@@ -479,7 +555,9 @@ FOCUS_ALIASES: dict[str, tuple[str, ...]] = {
     "poor_returns": ("negative", "loss", r"red\b", "return", "underperform", "perform", "profit", "xirr is low"),
     "cash_or_goal": ("cash", "money", "afford", "salary", "income", r"job\b", "emergency", "loan", "expense", "goal", "financ"),
     "involuntary_system": ("payment", "mandate", "autopay", "auto-pay", "debit", "bank", "fail", "bounce", "declin",
-                           "reject", "kyc", "salary account", "account chang"),
+                           "reject", "salary account", "account chang"),
+    "activation_failure": ("kyc", "first instal", "first sip", "set up", "setup", "activat", "registration",
+                           "go live", "went live"),
     "control_friction": ("resume", "un-pause", "unpause", "skip", "control", "option", "status"),
     "fund_switch": ("switch", "rebalanc", "direct", "regular", "consolidat", "reallocat", "lump"),
     "platform_move": ("platform", "move", "migrat", "app to", "amc website"),
@@ -520,6 +598,8 @@ def detect_focus(question: str) -> tuple[list[str], str | None, bool]:
             and (t != "cash_or_goal" or CASH_NEED.search(q))
             and (t != "fund_switch" or re.search(r"switch\w* (to|from|fund|sip|plan)", q))
         ]
+    if "activation_failure" in themes and not re.search(r"mandate|auto-?pay|debit|bounce|bank|salary", q):
+        themes = [t for t in themes if t != "involuntary_system"]
     named = [
         code for code, (aliases, _, _) in ACTION_FOCUS.items()
         if any(re.search(rf"\b{a}", q) for a in aliases)
@@ -746,9 +826,10 @@ def opportunity_table(
     """Rank opportunity areas on the at-risk corpus.
 
     share        = at-risk posts whose primary reason belongs to the area
-    lapse_share  = share × severity, normalised across areas (proxy for share of lapses)
+    lapse_share  = share (posts about stopping are the proxy for lapses; posts with no sized cause stay unsized)
     leverage     = lapse_share × addressability
     est_pp       = lapse_rate × lapse_share × addressability × recovery_rate (percentage points)
+    Severity is shown as a judgement but does not weight the sizing.
     """
     overrides = overrides or {}
     risk = df[df["is_at_risk"]]
@@ -787,9 +868,7 @@ def opportunity_table(
             "evidence_ids": ev.sort_values("opportunity_score", ascending=False)["item_id"].head(6).tolist(),
         })
     out = pd.DataFrame(rows)
-    weighted = out["share"] * out["Severity"]
-    total = weighted.sum()
-    out["Lapse share %"] = (weighted / total * 100).round(1) if total else 0.0
+    out["Lapse share %"] = (out["share"] * 100).round(1)
     out["Leverage index"] = (out["Lapse share %"] * out["Addressability"]).round(1)
     out["Est. uplift (pp)"] = (
         lapse_rate * 100 * (out["Lapse share %"] / 100) * out["Addressability"] * recovery_rate
