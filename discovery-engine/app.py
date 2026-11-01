@@ -69,9 +69,19 @@ FIELDS = {
     "workaround": "WORKAROUND",
     "quote": "QUOTE",
     "selection": "SELECTION",
+    "stage": "STAGE",
+    "months": "MONTHS",
+    "status": "STATUS",
+    "concern": "CONCERN",
+    "yardstick": "YARDSTICK",
+    "decides_outside": "DECIDES_OUTSIDE",
+    "life_change": "LIFE_CHANGE",
+    "age_band": "AGE_BAND",
+    "fit_quote": "FIT_QUOTE",
+    "query_branch": "QUERY_BRANCH",
 }
-FREE_TEXT = {"segment", "workaround", "quote", "selection"}
-COHORT_TARGET = "Target: first-time / young"
+FREE_TEXT = {"segment", "workaround", "quote", "selection", "fit_quote", "query_branch"}
+COHORT_TARGET = "Target: first-time investors"
 COHORT_COMPARISON = "Comparison: other investors"
 
 SELECTION_LOG = ENGINE_DIR / "data" / "selection_log.csv"
@@ -1019,7 +1029,7 @@ def render_workflow_tab() -> None:
 | Step | What happens | Output |
 |------|----------------|--------|
 | **1. Collect** | Play Store, App Store, Reddit, YouTube, TradingQ&A | Raw posts + URLs |
-| **2. Select** | SIP relevance → author's own experience → first-time / young (rules) → LLM screen | Target posts + comparison posts |
+| **2. Select** | SIP relevance → author's own experience → duplicates removed → LLM problem-fit pass (stage, months, SIP status) | First-time posts (target) + other investors (comparison), same filters |
 | **3. Code** | LLM applies a fixed codebook (lifecycle, trigger, behaviour, link to lapse…) | Structured tags per post |
 | **4. Reason** | Text-based cause taxonomy → primary cause + kind of stop per post | Why, not just what |
 | **5. Contrast** | Each theme compared with all posts **and** with investors who continued | Which causes actually separate drop-offs |
@@ -1058,7 +1068,7 @@ def render_header(df: pd.DataFrame) -> None:
     with c2.container(border=True):
         st.markdown("**Evidence**")
         st.caption(f"{len(df)} coded public posts from Reddit, TradingQ&A, YouTube, Play Store and App Store: "
-                   f"{int((df['cohort'] == COHORT_TARGET).sum())} first-time / young investors, "
+                   f"{int((df['cohort'] == COHORT_TARGET).sum())} first-time investors, "
                    f"{int((df['cohort'] == COHORT_COMPARISON).sum())} other investors for comparison.")
     with c3.container(border=True):
         st.markdown("**Guardrails**")
@@ -1071,7 +1081,7 @@ def render_sidebar(df: pd.DataFrame) -> None:
         st.header("Corpus")
         st.metric("Coded posts", len(df))
         c1, c2 = st.columns(2)
-        c1.metric("First-time / young", int((df["cohort"] == COHORT_TARGET).sum()))
+        c1.metric("First-time", int((df["cohort"] == COHORT_TARGET).sum()))
         c2.metric("Comparison", int((df["cohort"] == COHORT_COMPARISON).sum()))
         c1.metric("About stopping", int(df["is_at_risk"].sum()))
         c2.metric("Continuers", int(df["is_continuer"].sum()))
@@ -1269,7 +1279,7 @@ def render_overview(df: pd.DataFrame) -> None:
     with f4.container(border=True):
         st.markdown("**4. First-timers talk about starting, not stopping.**")
         st.markdown(
-            f"{not_stop.at['none', COHORT_TARGET]:.0f}% of first-time / young investors' posts are not about "
+            f"{not_stop.at['none', COHORT_TARGET]:.0f}% of first-time investors' posts are not about "
             f"stopping (vs {not_stop.at['none', COHORT_COMPARISON]:.0f}% for others). Their early doubts — "
             "what to pick, how much, whether it's working — are where retention starts."
         )
@@ -1342,7 +1352,7 @@ def render_decomposition_tab(df: pd.DataFrame) -> None:
         "the primary cause of posts about stopping."
     )
     sized = sizes[sizes["code"] != "0"]
-    groups = [f"All investors (n={a['risk_n']})", f"First-time / young (n={f['risk_n']})"]
+    groups = [f"All investors (n={a['risk_n']})", f"First-time (n={f['risk_n']})"]
     long = pd.concat([
         pd.DataFrame({"Branch": sized["Branch"], "Group": groups[0], "pp": sized["lost_pp_all"]}),
         pd.DataFrame({"Branch": sized["Branch"], "Group": groups[1], "pp": sized["lost_pp_ft"]}),
@@ -1367,7 +1377,7 @@ def render_decomposition_tab(df: pd.DataFrame) -> None:
         "pp of lapse (first-time)", "Est. uplift pp (all)", "Est. uplift pp (first-time)"]])
     if f["risk_n"] < SMALL_SAMPLE:
         st.warning(
-            f"**Small sample:** only {f['risk_n']} posts about stopping come from first-time / young investors "
+            f"**Small sample:** only {f['risk_n']} posts about stopping come from first-time investors "
             "(they mostly post about starting). The first-time split is a hypothesis for interviews and Groww "
             "cohort data, not a measurement."
         )
@@ -1378,10 +1388,10 @@ def render_decomposition_tab(df: pd.DataFrame) -> None:
         st.markdown("**A · Payment & mandate reliability**")
         m1, m2 = st.columns(2)
         m1.metric("Est. uplift, all investors", f"+{a['payment']:.2f} pp")
-        m2.metric("First-time / young", f"+{f['payment']:.2f} pp")
+        m2.metric("First-time", f"+{f['payment']:.2f} pp")
         st.markdown(
             f"- Largest single cause overall: {a['payment_pct']:.0f}% of posts about stopping, but "
-            f"{f['payment_pct']:.0f}% among first-time / young investors.\n"
+            f"{f['payment_pct']:.0f}% among first-time investors.\n"
             "- Mostly a payments-and-operations fix (retries, mandate repair, failure reasons); AI adds little.\n"
             "- **Decision: parallel track.** Probe it in every interview; size it with Groww debit-return data."
         )
@@ -1389,11 +1399,11 @@ def render_decomposition_tab(df: pd.DataFrame) -> None:
         st.markdown("**B + C · The stop moment** (pause, reduce, skip, stop or switch)")
         m1, m2 = st.columns(2)
         m1.metric("Est. uplift, all investors", f"+{a['stop_moment']:.2f} pp")
-        m2.metric("First-time / young", f"+{f['stop_moment']:.2f} pp")
+        m2.metric("First-time", f"+{f['stop_moment']:.2f} pp")
         st.markdown(
             f"- Four opportunity areas meet on one screen — when the investor opens the pause / stop controls: "
             f"{a['stop_moment_pct']:.0f}% of posts about stopping overall, {f['stop_moment_pct']:.0f}% among "
-            "first-time / young investors.\n"
+            "first-time investors.\n"
             "- The decision needs the investor's own context (goal, horizon, what is normal) explained neutrally — "
             "where an AI feature can earn its place without giving advice.\n"
             "- **Decision: research and MVP focus** (refined Problem 2)."
@@ -1413,7 +1423,7 @@ def render_decomposition_tab(df: pd.DataFrame) -> None:
 
 def _quote_list(quotes: list[dict[str, str]]) -> None:
     for q in quotes:
-        group = "first-time / young" if q["group"] == COHORT_TARGET else "other investor"
+        group = "first-time" if q["group"] == COHORT_TARGET else "other investor"
         st.markdown(f"> {q['text']}  \n> — [#{q['id']}]({q['url']}) · {q['source']} · {group}")
 
 
@@ -1439,7 +1449,7 @@ def _problem_mandate(m: dict) -> None:
                   delta_color="off")
         c3.metric("Estimated uplift if fixed", f"+{o['uplift']} pp", help="On the 12-month active-SIP metric; "
                   "assumptions editable in Opportunity sizing")
-        c4.metric("Of which first-time / young investors", f"{m['first_timer_n']} of {m['area_n']}")
+        c4.metric("Of which first-time investors", f"{m['first_timer_n']} of {m['area_n']}")
 
         left, right = st.columns([3, 2])
         with left:
@@ -1466,7 +1476,7 @@ def _problem_mandate(m: dict) -> None:
             st.markdown(
                 f"- Only **{m['job_change_with_mandate']}** post connects a job change with a mandate "
                 f"({m['job_change_any']} mention a job change at all).\n"
-                f"- Only **{m['first_timer_n']} of {m['area_n']}** failure posts come from first-time / young "
+                f"- Only **{m['first_timer_n']} of {m['area_n']}** failure posts come from first-time "
                 "investors — first-timers rarely post about it, so this rests on the comparison group.\n"
                 "- Public posts over-represent people who noticed the failure; silent lapses are invisible here."
             )
@@ -1514,7 +1524,7 @@ def _problem_panic(p: dict) -> None:
         )
         v1, v2, v3 = st.columns(3)
         v1.success(f"**Market falls create doubt — supported.** {p['fall_n']} posts discuss a fall, "
-                   f"{p['fall_first_timer_n']} of them from first-time / young investors.")
+                   f"{p['fall_first_timer_n']} of them from first-time investors.")
         separates = p["pct_fall_risk"] > p["pct_fall_cont"] * 1.3
         (v2.success if separates else v2.warning)(
             f"**{'Falls do separate drop-offs' if separates else 'Panic is not what separates drop-offs'}.** "
@@ -1636,7 +1646,7 @@ def render_problem_validation_tab(df: pd.DataFrame) -> None:
     st.success(
         f"**Conclusion:** mandate failures are the largest cause of SIPs ending across all posts "
         f"({m['pct_risk']}% of posts about stopping vs {m['pct_cont']}% of continuers, est. +{m['opp']['uplift']} pp), "
-        "but they come mostly from experienced investors. In first-time / young investors' own posts, the stop "
+        "but they come mostly from experienced investors. In first-time investors' own posts, the stop "
         f"moment — doubt, switching, cash squeeze — leads (+{focus['ft']['stop_moment']:.1f} vs "
         f"+{focus['ft']['payment']:.1f} pp, small sample). So the research and MVP focus on a neutral stop-moment "
         "sheet instead of fund-level social proof, with mandate failure as a parallel payments track. See "
@@ -1747,17 +1757,23 @@ def render_selection_funnel() -> None:
     if log.empty:
         st.info("Run `python3 build_corpus.py` to create the selection log.")
         return
+    decision = log["decision"]
     total = len(log)
-    off_topic = log["decision"].str.startswith("dropped: not about SIPs").sum()
-    not_own = log["decision"].str.startswith("dropped: not the author").sum()
-    rule_kept = (log["rule_keep"] == "True").sum()
-    kept = (log["keep"] == "True").sum()
+    off_topic = int(decision.str.startswith("dropped: not about SIPs").sum())
+    not_own = int(decision.str.startswith("dropped: not the author").sum())
+    dupes = int(decision.str.startswith("dropped: duplicate").sum())
+    candidates = total - off_topic - not_own - dupes
+    kept = int((log["keep"] == "True").sum())
+    first_time = int(decision.str.startswith("kept: first_time").sum())
     funnel = pd.DataFrame([
         {"Step": "1. Pooled public posts", "Posts": total, "How": "Scraped + cleaned sheet"},
         {"Step": "2. About SIPs / mutual funds", "Posts": total - off_topic, "How": "Keyword rules"},
         {"Step": "3. Author's own experience", "Posts": total - off_topic - not_own, "How": "First-person rules"},
-        {"Step": "4. First-time or young (rules)", "Posts": rule_kept, "How": "Phrase rules, age / experience exclusions"},
-        {"Step": "5. Confirmed by LLM screen", "Posts": kept, "How": "LLM checks own story, stage and age"},
+        {"Step": "4. Duplicates removed", "Posts": candidates,
+         "How": "Same body text, or a repost inside another post of similar length"},
+        {"Step": "5. Confirmed own experience by LLM", "Posts": kept, "How": "Problem-fit pass (problem_fit.py)"},
+        {"Step": "6. First-time investors (first 12 months)", "Posts": first_time,
+         "How": "LLM stage and months since start; first-time phrase rule where the LLM can't tell"},
     ])
     c1, c2 = st.columns([3, 2])
     c1.dataframe(
@@ -1765,17 +1781,17 @@ def render_selection_funnel() -> None:
         column_config={"Posts": st.column_config.ProgressColumn(min_value=0, max_value=int(total), format="%d")},
     )
     with c2:
-        st.metric("Rule candidates confirmed by the LLM", f"{kept / max(rule_kept, 1) * 100:.0f}%",
-                  help="The other candidates were news, guides, essays or experienced / older investors")
-        st.metric("Coded by LLM against a fixed codebook", "100%", help="Lifecycle, trigger, behaviour, link to lapse…")
-    dropped = log[log["decision"].str.startswith("dropped by LLM screen")]
+        st.metric("Duplicates removed", dupes)
+        with_fit = int((log.get("fit_investor_stage", pd.Series("", index=log.index)) != "").sum())
+        st.metric("Candidates with an LLM problem-fit verdict", f"{with_fit / max(candidates, 1) * 100:.0f}%",
+                  help="The rest fall back to the first-time phrase rule")
+    dropped = log[decision.str.startswith("dropped by LLM")]
     if len(dropped):
-        with st.expander(f"Why the LLM rejected {len(dropped)} rule candidates (sample)"):
+        with st.expander(f"Candidates the LLM rejected as not the author's own experience ({len(dropped)}, sample)"):
             st.dataframe(
-                dropped[["item_id", "source", "llm_reason"]].head(15).rename(
-                    columns={"item_id": "ID", "source": "Source", "llm_reason": "LLM reason"}
-                ),
+                dropped[["item_id", "source", "url"]].head(15).rename(columns={"item_id": "ID", "source": "Source"}),
                 hide_index=True, width="stretch",
+                column_config={"url": st.column_config.LinkColumn("Post", display_text="open")},
             )
     st.download_button(
         "Download full selection log (every post, decision and reason)",
@@ -1807,7 +1823,7 @@ def render_data_quality(df: pd.DataFrame) -> None:
             "Posts pooled": int(pooled.get(src, 0)),
             "In corpus": len(g),
             "Share of corpus %": round(len(g) / len(df) * 100, 1),
-            "First-time / young": int((g["cohort"] == COHORT_TARGET).sum()),
+            "First-time": int((g["cohort"] == COHORT_TARGET).sum()),
             "Published": f"{int(y.min())}–{int(y.max())}" if len(y) else "unknown",
             "Collection method (collect.py)": method,
             "Terms and caveats": terms,
@@ -1835,7 +1851,7 @@ def render_data_quality(df: pd.DataFrame) -> None:
             f"""
 - **Selection bias:** public posts over-represent people with problems, and keyword searches over-select stop,
   pause and autopay threads. Nothing here measures how common a behaviour is among all investors.
-- **Not a random sample:** posts were filtered for first-time / young investors and topped up with a comparison
+- **Not a random sample:** posts were filtered for first-time investors and topped up with a comparison
   group, so shares describe this corpus, not Groww's users.
 - **Tags are AI output:** every post was coded by `{v['coding_model']}` against `codebook.json` (screening by
   `{v['screen_model']}`); causes come from auditable text rules. On the hand-labelled golden set the rules agree

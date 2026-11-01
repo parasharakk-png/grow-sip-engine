@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 """
-Rebuild the discovery corpus: first-person conversations from first-time and young investors.
+Rebuild the discovery corpus: first-person conversations about SIPs, split into first-time investors (target)
+and everyone else (comparison), with the same filters for both.
 
-A post is kept only if it passes all three filters:
+A post is kept only if it passes:
   1. relevant    — about SIPs / mutual funds (not stock trading, F&O, loans, generic app praise)
   2. user_voice  — the author talks about their own situation (first person, EN + Hinglish),
                    not news, PSAs, promotions or essays about other people
-  3. target      — first-time investor OR early-age investor (18–30, student, first job)
+  3. not a duplicate of an earlier post (same body text, e.g. a forum post collected with and without its title)
+  4. the problem-fit LLM pass (problem_fit.py) confirms it is the author's own experience
+
+Cohort: target if the LLM puts the author before or in their first 12 months of investing (or, without an LLM
+verdict, a first-time phrase matches); comparison otherwise, including anyone 12+ months in. Age alone no longer
+makes a post "target".
 
 Every pool row is written to data/selection_log.csv with the signals that matched, so the
 selection itself is auditable for the AI Evidence Log.
 
 Usage:
-  python3 build_corpus.py            # select + reuse existing LLM codes
-  python3 build_corpus.py --code     # also LLM-code kept posts that only have rules codes / no codes
+  python3 build_corpus.py                # select, reusing saved LLM results (offline)
+  python3 build_corpus.py --fit --code   # LLM problem-fit pass on new candidates + codebook-code new posts
 """
 
 from __future__ import annotations
@@ -22,7 +28,6 @@ import argparse
 import json
 import os
 import re
-import shutil
 import sys
 import time
 from pathlib import Path
@@ -33,12 +38,12 @@ ENGINE = Path(__file__).resolve().parent
 ROOT = ENGINE.parent
 POOL_CSV = ROOT / "NL GROWW - cleaned_SIP_data_paste_into_sheets.backup.csv"
 RAW_CSV = ROOT / "raw_posts.csv"
+RAW_TARGETED_CSV = ROOT / "raw_posts_targeted.csv"
 MAIN_CHECKPOINT = ENGINE / "coded_posts.checkpoint.jsonl"
 CORPUS_CHECKPOINT = ENGINE / "data" / "corpus_first_time.checkpoint.jsonl"
 OUT_CORPUS = ENGINE / "data" / "corpus_first_time.csv"
 OUT_LOG = ENGINE / "data" / "selection_log.csv"
 OUT_MERGED = ENGINE / "data" / "grow_sip_956.csv"
-MERGE_BASE = ENGINE / "data" / "grow_sip_956.original.csv"
 
 RAW_SOURCE = {"play_store": "Play Store", "app_store": "App Store", "youtube": "YouTube",
               "reddit": "Reddit", "tradingqna": "TradingQ&A"}
@@ -104,7 +109,8 @@ LLM_SEGMENT_YOUNG = ("young_22_30", "first_job")
 def load_pool() -> pd.DataFrame:
     pool = pd.read_csv(POOL_CSV, dtype=str).fillna("")
     pool = pool[["item_id", "source", "platform_detail", "date_clean", "query", "title", "text", "url"]]
-    raw = pd.read_csv(RAW_CSV, dtype=str).fillna("")
+    raw = pd.concat([pd.read_csv(p, dtype=str).fillna("") for p in (RAW_CSV, RAW_TARGETED_CSV) if p.exists()],
+                    ignore_index=True).drop_duplicates("url")
     raw = raw[~raw["url"].isin(pool["url"]) & (raw["text"].str.len() >= 40)].copy()
     raw["source"] = raw["source"].map(RAW_SOURCE).fillna(raw["source"])
     raw["date_clean"] = raw["date"]
@@ -155,19 +161,56 @@ def select(pool: pd.DataFrame, codes: dict[str, dict[str, str]]) -> pd.DataFrame
     log["young"] = (
         (log["young_terms"] != "") | seg.str.contains("|".join(LLM_SEGMENT_YOUNG))
     ) & (log["older_terms"] == "")
-    log["keep"] = log["relevant"] & log["user_voice"] & (log["first_time"] | log["young"])
+    log["duplicate_of"] = duplicate_of(pool, log["relevant"] & log["user_voice"])
+    log["keep"] = log["relevant"] & log["user_voice"] & (log["duplicate_of"] == "")
 
     def reason(r: pd.Series) -> str:
-        if r["keep"]:
-            return "kept: " + "+".join(x for x, ok in (("first_time", r["first_time"]), ("young", r["young"])) if ok)
         if not r["relevant"]:
             return "dropped: not about SIPs / mutual funds"
         if not r["user_voice"]:
             return "dropped: not the author's own experience"
-        return "dropped: not first-time or young investor"
+        if r["duplicate_of"]:
+            return f"dropped: duplicate of #{r['duplicate_of']}"
+        return "candidate"
 
     log["decision"] = log.apply(reason, axis=1)
     return log
+
+
+def _body_key(title: str, text: str) -> str:
+    body = text.strip() if len(text) >= 80 else f"{title} {text}".strip()
+    title = title.strip()
+    while title and body.startswith(title):
+        body = body[len(title):].strip()
+    return re.sub(r"[^a-z0-9]", "", body.lower())[:200]
+
+
+def duplicate_of(pool: pd.DataFrame, eligible: pd.Series) -> pd.Series:
+    """item_id of an earlier eligible post with the same body (title stripped), else ''.
+
+    Also catches reposts: a post whose text sits inside another post of similar length ("Posting it again…").
+    Similar length only, so a reply that quotes part of another post is not dropped."""
+    first: dict[str, str] = {}
+    out = pd.Series("", index=pool.index)
+    bodies: list[tuple[object, str, str]] = []
+    for idx, r in pool[eligible].iterrows():
+        key = _body_key(r["title"], r["text"])
+        if len(key) < 60:
+            continue
+        if key in first:
+            out[idx] = first[key]
+            continue
+        first[key] = r["item_id"]
+        bodies.append((idx, r["item_id"], re.sub(r"[^a-z0-9]", "", f"{r['title']} {r['text']}".lower())))
+    for i, (idx_i, _, body_i) in enumerate(bodies):
+        if len(body_i) < 300:
+            continue
+        window = body_i[len(body_i) // 2 - 100: len(body_i) // 2 + 100]
+        for idx_j, id_j, body_j in bodies[:i]:
+            if out[idx_j] == "" and 0.6 <= len(body_i) / len(body_j) <= 1.67 and window in body_j:
+                out[idx_i] = id_j
+                break
+    return out
 
 
 def _client() -> tuple[object, str]:
@@ -241,46 +284,61 @@ def screen_with_llm(rows: pd.DataFrame, batch_size: int) -> dict[str, dict[str, 
     return done
 
 
-def llm_keep(s: dict[str, object] | None, rule_first: bool, rule_young: bool) -> bool | None:
-    """The LLM judges whether the post is the author's own story and can veto stage/age; when it
-    answers "unknown" for stage or age, the explicit rule match (e.g. "I am 25") stands."""
-    if not s:
-        return None
-    stage, age = s.get("investor_stage"), s.get("age_band")
-    first = stage in ("not_started", "first_year") or (stage == "unknown" and rule_first)
-    young = age in ("under_25", "25_30") or (age == "unknown" and rule_young)
-    return str(s.get("own_experience")).lower() == "true" and (first or young)
+FIRST_STAGES = ("not_started", "first_year")
+PAST_FIRST_YEAR = ("12_18", "gt18")
 
 
-def code_missing(rows: pd.DataFrame, codes: dict[str, dict[str, str]], batch_size: int) -> None:
+def assign(fit: dict | None, screen: dict | None, rule_first: bool) -> tuple[bool, str]:
+    """(keep, selection). The problem-fit verdict wins, then the older screen, then the first-time phrase rule."""
+    verdict = fit or screen
+    if verdict and str(verdict.get("own_experience")).lower() != "true":
+        return False, "dropped by LLM: not the author's own experience"
+    stage = str((verdict or {}).get("investor_stage", "unknown"))
+    if fit and fit.get("months_since_start") in PAST_FIRST_YEAR:
+        return True, f"comparison: past first 12 months (llm: {fit['months_since_start']})"
+    if stage in FIRST_STAGES:
+        return True, f"first_time (llm: {stage})"
+    if stage == "experienced":
+        return True, "comparison: experienced investor (llm)"
+    if rule_first:
+        return True, "first_time (rule: first-time phrase, llm: unknown)" if verdict else "first_time (rule only)"
+    return True, "comparison: stage not stated"
+
+
+def code_missing(rows: pd.DataFrame, codes: dict[str, dict[str, str]], batch_size: int, workers: int = 6) -> None:
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     import code_posts
 
-    client, model = _client()
     todo = [r for r in rows.to_dict("records") if codes.get(r["item_id"], {}).get("coding_method") != "llm"]
     if not todo:
         return
-    print(f"LLM coding {len(todo)} posts with {model} (batch {batch_size})")
+    client, model = _client()
+    batches = [todo[i: i + batch_size] for i in range(0, len(todo), batch_size)]
+    print(f"Codebook coding {len(todo)} posts with {model} ({len(batches)} batches)")
     CORPUS_CHECKPOINT.parent.mkdir(exist_ok=True)
-    for i in range(0, len(todo), batch_size):
-        batch = todo[i : i + batch_size]
-        try:
-            coded = code_posts.code_llm_batch(client, batch, model, "anthropic")
-        except Exception as e:  # noqa: BLE001
-            print(f"  batch {i} failed: {str(e)[:160]}", file=sys.stderr)
-            continue
-        with CORPUS_CHECKPOINT.open("a", encoding="utf-8") as f:
+    with ThreadPoolExecutor(max_workers=workers) as pool, CORPUS_CHECKPOINT.open("a", encoding="utf-8") as f:
+        futures = [pool.submit(code_posts.code_llm_batch, client, b, model, "anthropic") for b in batches]
+        for n, fut in enumerate(as_completed(futures), 1):
+            try:
+                coded = fut.result()
+            except Exception as e:  # noqa: BLE001
+                print(f"  batch failed: {str(e)[:160]}", file=sys.stderr)
+                continue
             for c in coded:
                 f.write(json.dumps(c, ensure_ascii=False) + "\n")
                 codes[c["item_id"]] = c
-        print(f"  coded {min(i + batch_size, len(todo))}/{len(todo)}")
-        time.sleep(0.3)
+            f.flush()
+            if n % 10 == 0 or n == len(batches):
+                print(f"  {n}/{len(batches)} batches")
 
 
-def to_content(row: pd.Series, code: dict[str, str], selection: str) -> str:
+def to_content(row: pd.Series, code: dict[str, str], fit: dict, selection: str) -> str:
     post = row["text"] if not row["title"] or row["title"] in row["text"] else f"{row['title']} {row['text']}"
     seg = code.get("segment_hints", "")
     if isinstance(seg, list):
         seg = "|".join(seg)
+    branch = row["query"].split("|", 1)[0] if "|" in row["query"] else ""
     return "\n".join([
         f"ID: {row['item_id']}",
         f"SOURCE: {row['source']}",
@@ -293,6 +351,16 @@ def to_content(row: pd.Series, code: dict[str, str], selection: str) -> str:
         f"WORKAROUND: {code.get('workaround', '')}",
         f"UNMET_NEED: {code.get('unmet_need', '')}",
         f"QUOTE: {code.get('quote', '')}",
+        f"STAGE: {fit.get('investor_stage', '')}",
+        f"MONTHS: {fit.get('months_since_start', '')}",
+        f"STATUS: {fit.get('sip_status', '')}",
+        f"CONCERN: {fit.get('core_concern', '')}",
+        f"YARDSTICK: {fit.get('yardstick', '')}",
+        f"DECIDES_OUTSIDE: {fit.get('decides_outside', '')}",
+        f"LIFE_CHANGE: {fit.get('life_change', '')}",
+        f"AGE_BAND: {fit.get('age_band', '')}",
+        f"FIT_QUOTE: {fit.get('evidence_quote', '') if fit.get('quote_verbatim') else ''}",
+        f"QUERY_BRANCH: {branch}",
         f"SEARCH_QUERY: {row['query']}",
         f"SELECTION: {selection}",
         f"POST: {re.sub(chr(10), ' ', post)}",
@@ -300,70 +368,57 @@ def to_content(row: pd.Series, code: dict[str, str], selection: str) -> str:
     ])
 
 
-def _tag_comparison(content: str) -> str:
-    if "\nSELECTION:" in content:
-        return content
-    line = "SELECTION: comparison (not identified as first-time / young)"
-    return content.replace("\nPOST:", f"\n{line}\nPOST:", 1) if "\nPOST:" in content else f"{content}\n{line}"
-
-
-def write_merged(target: pd.DataFrame) -> None:
-    """Target corpus + earlier posts (comparison group) -> the file the app reads.
-    The earlier file is preserved once as MERGE_BASE, so reruns never duplicate rows."""
-    if not MERGE_BASE.exists():
-        if not OUT_MERGED.exists():
-            return
-        shutil.copy(OUT_MERGED, MERGE_BASE)
-    base = pd.read_csv(MERGE_BASE, dtype=str).fillna("")
-    extra = base[~base["item_id"].isin(target["item_id"])].copy()
-    extra["content"] = extra["content"].map(_tag_comparison)
-    merged = pd.concat([target, extra[["item_id", "url", "content"]]], ignore_index=True)
-    merged.to_csv(OUT_MERGED, index=False)
-    print(f"Wrote {OUT_MERGED.name}: {len(merged)} posts ({len(target)} target + {len(extra)} comparison from {MERGE_BASE.name})")
-
-
 def main() -> None:
+    import problem_fit
+
     ap = argparse.ArgumentParser()
-    ap.add_argument("--screen", action="store_true", help="LLM-verify rule candidates (own story, stage, age)")
-    ap.add_argument("--code", action="store_true", help="LLM-code kept posts without LLM codes")
+    ap.add_argument("--fit", action="store_true", help="LLM problem-fit pass on candidates without a verdict")
+    ap.add_argument("--code", action="store_true", help="LLM codebook-code kept posts without LLM codes")
     ap.add_argument("--batch-size", type=int, default=5)
     args = ap.parse_args()
 
     pool = load_pool()
     codes = load_codes()
     log = select(pool, codes)
-    log = log.rename(columns={"keep": "rule_keep"})
-    candidates = pool[log["rule_keep"].values]
-    screening = screen_with_llm(candidates, 10) if args.screen else load_screening()
+    candidates = pool[log["keep"].values]
+    if args.fit:
+        client, model = _client()
+        fits = problem_fit.code(candidates.to_dict("records"), client, model)
+    else:
+        fits = problem_fit.load()
+    screening = load_screening()
 
-    log["llm_own_experience"] = log["item_id"].map(lambda i: screening.get(i, {}).get("own_experience", ""))
-    log["llm_investor_stage"] = log["item_id"].map(lambda i: screening.get(i, {}).get("investor_stage", ""))
-    log["llm_age_band"] = log["item_id"].map(lambda i: screening.get(i, {}).get("age_band", ""))
-    log["llm_reason"] = log["item_id"].map(lambda i: screening.get(i, {}).get("reason", ""))
-    llm = [llm_keep(screening.get(r.item_id), r.first_time, r.young) for r in log.itertuples()]
-    log["keep"] = log["rule_keep"] & pd.Series([True if v is None else v for v in llm], index=log.index)
-    log.loc[log["rule_keep"] & ~log["keep"], "decision"] = "dropped by LLM screen: " + log["llm_reason"].astype(str)
+    for col in ("investor_stage", "months_since_start", "sip_status", "core_concern"):
+        log[f"fit_{col}"] = log["item_id"].map(lambda i, c=col: fits.get(i, {}).get(c, ""))
+    log["fit_own_experience"] = log["item_id"].map(lambda i: fits.get(i, {}).get("own_experience", ""))
+    decided = [assign(fits.get(r.item_id), screening.get(r.item_id), r.first_time) if r.keep else (False, r.decision)
+               for r in log.itertuples()]
+    log["keep"] = [k for k, _ in decided]
+    log["decision"] = [d if not k else f"kept: {d}" for k, d in decided]
     log.to_csv(OUT_LOG, index=False)
     kept = pool[log["keep"].values]
 
-    screened = log[log["rule_keep"] & log["llm_own_experience"].ne("")]
-    print(f"Pool: {len(pool)} posts | rule candidates: {int(log['rule_keep'].sum())} | LLM-screened: {len(screened)}")
-    print(log["decision"].str.replace(r"dropped by LLM screen: .*", "dropped by LLM screen", regex=True).value_counts().to_string())
-    print("\nKept by source:\n" + kept["source"].value_counts().to_string())
+    print(f"Pool: {len(pool)} posts | candidates: {len(candidates)} | with problem-fit verdict: "
+          f"{int(candidates['item_id'].isin(fits).sum())}")
+    print(log["decision"].str.replace(r"duplicate of #\d+", "duplicate", regex=True).value_counts().to_string())
 
     if args.code:
         code_missing(kept, codes, args.batch_size)
 
     selection = log.set_index("item_id")["decision"].str.replace("kept: ", "", regex=False)
-    uncoded = [i for i in kept["item_id"] if codes.get(i, {}).get("coding_method") != "llm"]
     out = pd.DataFrame({
         "item_id": kept["item_id"].values,
         "url": kept["url"].values,
-        "content": [to_content(r, codes.get(r["item_id"], {}), selection[r["item_id"]]) for _, r in kept.iterrows()],
+        "content": [to_content(r, codes.get(r["item_id"], {}), fits.get(r["item_id"], {}), selection[r["item_id"]])
+                    for _, r in kept.iterrows()],
     })
-    out.to_csv(OUT_CORPUS, index=False)
-    print(f"\nWrote {OUT_CORPUS.name}: {len(out)} posts ({len(out) - len(uncoded)} LLM-coded, {len(uncoded)} not yet)")
-    write_merged(out)
+    target = out[~out["content"].str.contains("\nSELECTION: comparison", regex=False)]
+    target.to_csv(OUT_CORPUS, index=False)
+    out.to_csv(OUT_MERGED, index=False)
+    uncoded = int((~kept["item_id"].isin([i for i, c in codes.items() if c.get("coding_method") == "llm"])).sum())
+    print(f"\nWrote {OUT_MERGED.name}: {len(out)} posts ({len(target)} first-time target, {len(out) - len(target)} "
+          f"comparison; {uncoded} without codebook codes)")
+    print("Kept by source:\n" + pool[log["keep"].values]["source"].value_counts().to_string())
     print(f"Wrote {OUT_LOG.name}: every pool row with its decision and matched signals")
 
 

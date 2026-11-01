@@ -329,14 +329,26 @@ def _stop_class(row: pd.Series) -> str:
     return "unclear"
 
 
+AT_RISK_STATUS = ("running_considering_stop", "paused_or_reduced", "stopped", "stopped_and_switched",
+                  "failed_without_choice")
+
+
 def _at_risk_mask(df: pd.DataFrame) -> pd.Series:
-    return (
+    """The problem-fit SIP status decides where it was coded; the older codebook rule is the fallback.
+
+    Fund-choice posts (portfolio reviews, trimming or swapping funds) are never at risk: the metric counts any
+    active SIP, so reshuffling funds doesn't threaten it."""
+    legacy = (
         df["behaviour"].isin(
             ["stopped_sip", "paused_sip", "reduced_amount", "lump_sum_instead", "switched_platform"]
         )
         | df["lifecycle"].isin(["stopped", "paused", "payment_failed"])
         | df["link_to_lapse"].eq("high")
     )
+    status = df["status"] if "status" in df else pd.Series("", index=df.index)
+    concern = df["concern"] if "concern" in df else pd.Series("", index=df.index)
+    has_status = ~status.isin(["", "unknown"])
+    return ((has_status & status.isin(AT_RISK_STATUS)) | (~has_status & legacy)) & concern.ne("which_fund")
 
 
 # ---------------------------------------------------------------- routing

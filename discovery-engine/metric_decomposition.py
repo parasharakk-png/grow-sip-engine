@@ -1,7 +1,7 @@
 """Part 2: decompose 12-month SIP continuation into product outcomes and user behaviours.
 
 Branch sizes reuse the opportunity model in reasoning.py, run twice: on all posts and on the
-first-time / young target cohort.
+first-time target cohort.
 
 Run:  python3 metric_decomposition.py   (writes exports/metric_decomposition.svg)
 """
@@ -20,7 +20,7 @@ from reasoning import opportunity_table
 ENGINE_DIR = Path(__file__).resolve().parent
 EXPORT_SVG = ENGINE_DIR / "exports" / "metric_decomposition.svg"
 GOLDEN_CSV = ENGINE_DIR / "data" / "golden_set.csv"
-TARGET_COHORT = "Target: first-time / young"
+TARGET_COHORT = "Target: first-time investors"
 
 BRAND, CB_ORANGE, CB_BLUE, GREY = "#00B386", "#E69F00", "#0072B2", "#6B7280"
 SLIDE_TITLE = "First-time investors' SIPs mostly end at the stop decision, not at a failed payment"
@@ -189,7 +189,7 @@ def interview_hypotheses(gs: dict[str, int]) -> pd.DataFrame:
          f"{gs.get('nudge_yes', 0)} of {gs.get('nudge_n', 0)}.",
          "When you asked others, what answer would have settled it for you?"),
         ("C", "Many first-timer 'stops' are switches; the new SIP depends on a second decision that often slips.",
-         "Engine: switching fund or platform is the largest stop cause among first-time / young investors "
+         "Engine: switching fund or platform is the largest stop cause among first-time investors "
          "(small sample).",
          "Have you ever stopped one SIP to start another? How long was the gap?"),
         ("B", "A cash squeeze ends in a cancel because reduce / skip is unknown or not trusted.",
@@ -315,7 +315,7 @@ def tree_svg(sizes: pd.DataFrame, focus: dict[str, dict[str, float]], lapse_rate
     parts.append(_text(margin + 16, ry + 27, [f"{RECOVERY[0]}  ·  Leading indicator: {RECOVERY[1]}"], 15,
                        "bold"))
     a, f = focus["all"], focus["ft"]
-    note = (f"Sizes from {a['risk_n']} posts about stopping (all) and {f['risk_n']} from first-time / young "
+    note = (f"Sizes from {a['risk_n']} posts about stopping (all) and {f['risk_n']} from first-time "
             f"investors (small sample — a hypothesis to test). Assumes {lapse_rate * 100:.0f}% of first SIPs lapse "
             "by month 12 and 30% of each branch is recoverable. Solid blue = focus; dashed orange = parallel track.")
     parts.append(_text(margin, ry + 72, wrap(note, 190), 12, "normal", GREY))

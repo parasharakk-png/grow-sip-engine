@@ -1,0 +1,10 @@
+respondent,months_since_start,first_ever,platform,sip_status,age_band,income,works_in_finance,monthly_amount,changed_job,changed_salary_account,at_risk,life_change,screen
+R1,12_18,yes,Groww,running_no_doubt,27-32,Salaried employee,no,"More than ₹10,000",No,No,no,no,qualify
+R2,6_12,yes,Groww,stopped,27-32,Salaried employee,no,"More than ₹10,000",Yes,No,yes,yes,qualify
+R3,gt18,yes,Through a financial advisor,running_no_doubt,33-40,Salaried employee,no,"More than ₹10,000",No,No,no,no,drop
+R4,3_6,yes,Groww,running_no_doubt,33-40,Self-employed / Freelancer,no,"₹5,001–₹10,000",No,No,no,no,"reserve: age 33-40, not salaried"
+R5,gt18,yes,Groww,stopped,27-32,Salaried employee,no,"₹5,001–₹10,000",Yes,No,yes,yes,reserve: timing
+R6,gt18,yes,Groww,stopped_and_switched,27-32,Salaried employee,no,"₹5,001–₹10,000",Yes,No,yes,yes,reserve: timing
+R7,6_12,yes,Groww,failed_without_choice,27-32,Salaried employee,no,"₹5,001–₹10,000",Yes,Yes,yes,yes,qualify
+R8,12_18,yes,Groww,paused_or_reduced,22-26,Salaried employee,no,"₹1,001–₹5,000",No,Yes,yes,yes,qualify
+R9,6_12,yes,Groww,stopped,27-32,Salaried employee,no,"More than ₹10,000",Yes,Yes,yes,yes,qualify

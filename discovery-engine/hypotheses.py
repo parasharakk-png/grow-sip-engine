@@ -9,7 +9,7 @@ import pandas as pd
 
 from reasoning import _pct, _snippet, opportunity_table
 
-TARGET = "Target: first-time / young"
+TARGET = "Target: first-time investors"
 
 # ---------------------------------------------------------------- problem 1: mandate failures
 
@@ -109,7 +109,7 @@ def panic_hypothesis(df: pd.DataFrame, opps: pd.DataFrame) -> dict[str, Any]:
     groups = {
         "Posts about stopping": df["is_at_risk"],
         "Continuers": df["is_continuer"],
-        "First-time / young": df["cohort"] == TARGET,
+        "First-time": df["cohort"] == TARGET,
         "Other investors": df["cohort"] != TARGET,
     }
     by_group = pd.DataFrame(
