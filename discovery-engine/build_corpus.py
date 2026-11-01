@@ -96,10 +96,14 @@ OLDER = re.compile(
     r"|\(?\b([3-6][1-9]|[4-6]0) ?[mf]\b\)?|\b[mf] ?([3-6][1-9]|[4-6]0)\b",
     re.I,
 )
+# 1.5 years or more: past the first 12 months even allowing for rounding.
+_YEARS = r"([1-9]\.\d|[2-9]|\d\d|two|three|four|five|six|seven|eight|nine|ten|several|many|a few|few|couple of|a couple of)"
 EXPERIENCED = re.compile(
     r"(started|been) (investing|sips?|my sips?|in mutual funds?) (in|since|from) (19\d\d|20[01]\d|202[0-3])"
     r"|(investing|sips?) since (19\d\d|20[01]\d|202[0-3])|\b(\d{1,2}|several|many) years (of|into) (investing|sips?)"
-    r"|been investing for (\d{1,2}|several|many) years|long[- ]time (investor|lurker)",
+    r"|been investing for (\d{1,2}|several|many) years|long[- ]time (investor|lurker)"
+    rf"|started .{{0,40}}\b{_YEARS} (yrs?|years?) (ago|back)"
+    rf"|(for|in|over) the (past|last) {_YEARS} (yrs?|years?)|since {_YEARS} (yrs?|years?)",
     re.I,
 )
 LLM_SEGMENT_FIRST = ("first_mf_investor",)

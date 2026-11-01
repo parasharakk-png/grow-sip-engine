@@ -23,7 +23,6 @@ GOLDEN_CSV = ENGINE_DIR / "data" / "golden_set.csv"
 TARGET_COHORT = "Target: first-time investors"
 
 BRAND, CB_ORANGE, CB_BLUE, GREY = "#00B386", "#E69F00", "#0072B2", "#6B7280"
-SLIDE_TITLE = "First-time investors' SIPs mostly end at the stop decision, not at a failed payment"
 
 
 @dataclass(frozen=True)
@@ -144,6 +143,24 @@ def focus_comparison(
     return out
 
 
+def lead_phrase(stop_moment: float, payment: float) -> str:
+    """Which of the two bets is larger, worded so it stays true when the data changes."""
+    if abs(stop_moment - payment) < 0.5:
+        return f"the two are about level (stop moment +{stop_moment:.1f} vs payment +{payment:.1f} pp)"
+    if stop_moment > payment:
+        return f"the stop moment leads (+{stop_moment:.1f} vs +{payment:.1f} pp for payment failure)"
+    return f"payment failure leads (+{payment:.1f} vs +{stop_moment:.1f} pp for the stop moment)"
+
+
+def slide_title(focus: dict[str, dict[str, float]]) -> str:
+    f = focus["ft"]
+    if abs(f["stop_moment"] - f["payment"]) < 0.5:
+        return "First SIPs end at a failed payment and at the stop decision in similar measure"
+    if f["stop_moment"] > f["payment"]:
+        return "First-time investors' SIPs mostly end at the stop decision, not at a failed payment"
+    return "Failed payments end the most first SIPs; the stop decision is the second lever"
+
+
 def golden_signals() -> dict[str, int]:
     """Counts from the hand-labelled golden set used to phrase the interview hypotheses."""
     if not GOLDEN_CSV.exists():
@@ -189,12 +206,11 @@ def interview_hypotheses(gs: dict[str, int]) -> pd.DataFrame:
          f"{gs.get('nudge_yes', 0)} of {gs.get('nudge_n', 0)}.",
          "When you asked others, what answer would have settled it for you?"),
         ("C", "Many first-timer 'stops' are switches; the new SIP depends on a second decision that often slips.",
-         "Engine: switching fund or platform is the largest stop cause among first-time investors "
-         "(small sample).",
+         "Engine: switching fund or platform is one of the main stop causes in first-time investors' posts.",
          "Have you ever stopped one SIP to start another? How long was the gap?"),
         ("B", "A cash squeeze ends in a cancel because reduce / skip is unknown or not trusted.",
-         "Engine: cash need is the top cause for SIPs in months 7–12 and paused SIPs (all investors; small "
-         "samples).",
+         "Engine: appears in posts about pausing, but rarely in first-time investors' posts — test whether it is "
+         "simply unspoken.",
          "Has money ever been tight on the debit date? What did you do with the SIP?"),
         ("A", "Failed instalments go unnoticed; a bank or salary-account change is a trigger for first-timers too.",
          f"Golden set: {gs.get('p1_not_notified', 0)} of {p1} failures were not notified; "
@@ -203,7 +219,7 @@ def interview_hypotheses(gs: dict[str, int]) -> pd.DataFrame:
          "two-account setup.",
          "Has an instalment ever failed? How did you find out? Have you changed jobs or salary accounts since starting?"),
         ("D", "Not understanding returns (XIRR, red numbers early on) turns normal volatility into 'it isn't working'.",
-         "Engine: continuers mention confusion as often as people who stop — a weak driver on its own.",
+         "Engine: a minor primary cause in posts about stopping — likely a weak driver on its own.",
          "Show me what you check in the app. What does that number tell you?"),
     ]
     return pd.DataFrame(rows, columns=["Branch", "Hypothesis", "Evidence so far", "Interview probe"])
@@ -305,7 +321,7 @@ def tree_svg(sizes: pd.DataFrame, focus: dict[str, dict[str, float]], lapse_rate
                        [f"THE STOP MOMENT — research & MVP focus: +{focus['all']['stop_moment']:.1f} pp all · "
                         f"+{focus['ft']['stop_moment']:.1f} pp first-time"], 15, "bold", CB_BLUE, "middle"))
     ax = margin + (cw + gap_x)
-    parts.append(_text(ax + cw / 2, bracket_y + 5, ["LARGEST OVERALL — fix in parallel"], 13, "bold", "#92400E",
+    parts.append(_text(ax + cw / 2, bracket_y + 5, ["LARGEST SINGLE CAUSE — fix in parallel"], 13, "bold", "#92400E",
                        "middle"))
 
     # Recovery bar + footnote
@@ -335,7 +351,7 @@ if __name__ == "__main__":
     data = app.load_posts()
     sizes, focus = branch_sizes(data), focus_comparison(data)
     EXPORT_SVG.parent.mkdir(exist_ok=True)
-    EXPORT_SVG.write_text(tree_svg(sizes, focus, title=SLIDE_TITLE))
+    EXPORT_SVG.write_text(tree_svg(sizes, focus, title=slide_title(focus)))
     print(sizes.to_string())
     print(focus)
     print(f"wrote {EXPORT_SVG}")

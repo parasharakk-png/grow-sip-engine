@@ -27,7 +27,8 @@ from metric_decomposition import (
     BRANCHES,
     METRIC_MECHANICS,
     RECOVERY,
-    SLIDE_TITLE,
+    lead_phrase,
+    slide_title,
     branch_sizes,
     focus_comparison,
     golden_signals,
@@ -1326,7 +1327,7 @@ def render_decomposition_tab(df: pd.DataFrame) -> None:
         "could **tell it was working** (D) — or a lapse was **recovered** within 30 days."
     )
     st.image(tree_svg(sizes, focus, lapse), width="stretch")
-    st.download_button("Download as slide (SVG)", tree_svg(sizes, focus, lapse, title=SLIDE_TITLE),
+    st.download_button("Download as slide (SVG)", tree_svg(sizes, focus, lapse, title=slide_title(focus)),
                        file_name="metric_decomposition.svg", mime="image/svg+xml")
 
     st.markdown("#### 2 · Product outcomes, the behaviours behind them, and how to measure them")
@@ -1390,7 +1391,7 @@ def render_decomposition_tab(df: pd.DataFrame) -> None:
         m1.metric("Est. uplift, all investors", f"+{a['payment']:.2f} pp")
         m2.metric("First-time", f"+{f['payment']:.2f} pp")
         st.markdown(
-            f"- Largest single cause overall: {a['payment_pct']:.0f}% of posts about stopping, but "
+            f"- Largest single cause: {a['payment_pct']:.0f}% of posts about stopping overall, "
             f"{f['payment_pct']:.0f}% among first-time investors.\n"
             "- Mostly a payments-and-operations fix (retries, mandate repair, failure reasons); AI adds little.\n"
             "- **Decision: parallel track.** Probe it in every interview; size it with Groww debit-return data."
@@ -1408,12 +1409,13 @@ def render_decomposition_tab(df: pd.DataFrame) -> None:
             "where an AI feature can earn its place without giving advice.\n"
             "- **Decision: research and MVP focus** (refined Problem 2)."
         )
+    ft_small = " (small sample)" if f["risk_n"] < SMALL_SAMPLE else ""
     st.info(
-        f"**Why the stop moment over the bigger number:** the goal metric counts *first-time* investors. Payment "
-        f"failure leads across all posts (+{a['payment']:.1f} vs +{a['stop_moment']:.1f} pp), but in first-time "
-        f"investors' own posts the stop moment leads (+{f['stop_moment']:.1f} vs +{f['payment']:.1f} pp). Both "
-        "numbers rest on public posts and editable assumptions, so the interviews must confirm the first-time mix "
-        "before it drives the build."
+        f"**How the two bets compare:** across all posts, {lead_phrase(a['stop_moment'], a['payment'])}; in "
+        f"first-time investors' own posts ({f['risk_n']} about stopping{ft_small}), "
+        f"{lead_phrase(f['stop_moment'], f['payment'])}. The goal metric counts first-time investors, so the "
+        "first-time split matters most — and both rest on public posts and editable assumptions. The interviews "
+        "decide between the two using the rule in the research kit."
     )
 
     st.markdown("#### 5 · What the interviews must confirm or overturn")
@@ -1645,12 +1647,10 @@ def render_problem_validation_tab(df: pd.DataFrame) -> None:
                              _overrides_from_state())
     st.success(
         f"**Conclusion:** mandate failures are the largest cause of SIPs ending across all posts "
-        f"({m['pct_risk']}% of posts about stopping vs {m['pct_cont']}% of continuers, est. +{m['opp']['uplift']} pp), "
-        "but they come mostly from experienced investors. In first-time investors' own posts, the stop "
-        f"moment — doubt, switching, cash squeeze — leads (+{focus['ft']['stop_moment']:.1f} vs "
-        f"+{focus['ft']['payment']:.1f} pp, small sample). So the research and MVP focus on a neutral stop-moment "
-        "sheet instead of fund-level social proof, with mandate failure as a parallel payments track. See "
-        "**Metric decomposition**."
+        f"({m['pct_risk']}% of posts about stopping vs {m['pct_cont']}% of continuers, est. +{m['opp']['uplift']} pp). "
+        f"In first-time investors' own posts, {lead_phrase(focus['ft']['stop_moment'], focus['ft']['payment'])}. "
+        "Market-fall doubt is redesigned as a neutral stop-moment sheet instead of fund-level social proof; the "
+        "interviews decide which problem the MVP builds on. See **Metric decomposition**."
     )
 
 

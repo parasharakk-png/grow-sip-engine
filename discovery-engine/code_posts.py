@@ -31,7 +31,7 @@ def post_text(row: dict[str, str]) -> str:
     body = (row.get("text") or "").strip()
     if title and body and title not in body:
         return f"{title}\n{body}"
-    return title or body
+    return body or title
 
 
 def clip(s: str, n: int) -> str:
