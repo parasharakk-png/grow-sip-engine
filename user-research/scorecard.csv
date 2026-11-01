@@ -1,7 +1,7 @@
-participant,age_band,months_since_start,status_today,account_change,H1_judge_own_sip,H2_peers_proxy,H3_switch_gap,H4_cash_cancel,H5_failed_instalment,H6_confusion,critical_moment,key_quote
-P1,,,,,,,,,,,,
-P2,,,,,,,,,,,,
-P3,,,,,,,,,,,,
-P4,,,,,,,,,,,,
-P5,,,,,,,,,,,,
-P6,,,,,,,,,,,,
+participant,age_band,months_since_start,app,status_today,account_change,H1_judge_own_sip,H2_peers_proxy,H3_switch_gap,H4_cash_cancel,H5_failed_instalment,H6_confusion,failed_instalment,at_risk_moment,critical_moment,key_quote
+P1,22–26,12,Groww,running (considered stopping),no,+,+,0,−,+,0,yes (low balance; found in transaction history),stop decision,Red after 12 months; thought of moving to an RD; a colleague talked them into holding,"Whenever I see my money in red, i feel like stopping the SIP and put the money in RD"
+P2,27–32,14,Groww,stopped (moved to FD / RD),yes (job),+,0,!,0,0,0,yes (skipped; found by daily checking),stop decision,"Negative for months against a 10–12% one-year expectation; stopped, unsure what to do",I stopped my sip and left my investment money as it is because i was not sure what to do
+P3,22–26,8,Zerodha Coin,running (planning to stop),no,+,0,0,0,0,−,no,stop decision,Still red after six months of averaging; online research gave no conclusion,everything seems very vast and not able to get any conclusions
+P4,27–32,11,Groww,stopped (lump sum instead),no,−,0,!,0,0,+,no,stop decision,Learned at month 10 that each ELSS instalment is locked for 3 years; stopped instantly,I feel stuck because i was not aware that my each sips amount will be locked for 3 yrs
+P5,22–26,15,Groww,reduced (half to a gold scheme),yes (salary account),+,0,!,−,−,0,no,stop decision,Flat after 15 months against a one-year goal; a jeweller's offer and a friend's advice led to halving it,i feel stresssed bcz i had a lot of expectations with the sip
+P6,,,,,,,,,,,,,,,

@@ -1147,6 +1147,24 @@ def _payment_subcauses(t: pd.DataFrame) -> None:
     )
 
 
+HYPOTHESIS_P1 = (
+    "**My hypothesis:** many SIPs end without the investor choosing it, because an instalment fails. I think it "
+    "fails for one of three reasons:\n"
+    "1. Groww's systems or the payment gateway are down on the debit date.\n"
+    "2. The bank account behind the autopay doesn't have enough money on that day.\n"
+    "3. The autopay is still set on an old bank account the investor no longer uses (for example after a job "
+    "change), and they never updated it in Groww."
+)
+HYPOTHESIS_P2 = (
+    "**My hypothesis:** other investors stop their SIP on purpose. I think they do it for one of three reasons:\n"
+    "1. They picked a fund without understanding it (its type, lock-in period or costs such as the expense "
+    "ratio) and stop when they find out.\n"
+    "2. The market keeps falling, the money they put in shows a loss, and they stop.\n"
+    "3. They put extra cash in during a fall to average out the loss, the market keeps falling, and with no "
+    "cash left they stop."
+)
+
+
 def _p1_interviews(sc: pd.DataFrame, dec: dict) -> None:
     failed = sc[sc["failed_instalment"].str.startswith("yes")]
     changed = sc[sc["account_change"].str.startswith("yes")]
@@ -1186,10 +1204,7 @@ def _problem_mandate(m: dict, focus: dict, sc: pd.DataFrame, dec: dict | None) -
     o = m["opp"]
     with st.container(border=True):
         st.markdown("### Problem 1 · Failed payments: SIPs investors meant to keep")
-        st.markdown(
-            "**My hypothesis:** investors set up autopay on their salary account. When they change jobs and get a "
-            "new salary account, the old mandate fails and they don't come back to Groww to update the bank account."
-        )
+        st.markdown(HYPOTHESIS_P1)
         st.markdown("#### What the posts show")
         v1, v2 = st.columns(2)
         v1.success(f"**Problem area — strongly supported.** Payment and mandate failures are the #{o['rank']} "
@@ -1269,6 +1284,7 @@ def _problem_panic(p: dict, focus: dict, sc: pd.DataFrame, dec: dict | None) -> 
     o = p["opp"]
     with st.container(border=True):
         st.markdown("### Problem 2 · The stop decision: no way to judge their own SIP")
+        st.markdown(HYPOTHESIS_P2)
         st.info(f"**Problem statement:** {P2_STATEMENT}")
         st.markdown("#### What the posts show")
         v1, v2 = st.columns(2)
