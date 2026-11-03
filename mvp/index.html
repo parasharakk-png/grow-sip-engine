@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Groww SIP check-in · MVP</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ["Inter", "sans-serif"] },
+        colors: { groww: "#00B386", ink: "#0B0B0F" } } }
+    };
+  </script>
+</head>
+<body class="bg-neutral-200 text-white font-sans antialiased min-h-screen">
+  <div class="max-w-[430px] mx-auto pt-4 px-3">
+    <p class="text-neutral-700 text-xs font-medium mb-2">Mentor controls · nothing here is shown as part of Groww</p>
+    <div id="controls" class="flex flex-wrap gap-2 mb-3"></div>
+  </div>
+  <div id="phone" class="relative mx-auto w-full max-w-[430px] min-h-screen bg-ink shadow-2xl flex flex-col overflow-hidden">
+    <div id="screen" class="flex-1 pb-24"></div>
+    <div id="sheet"></div>
+    <nav id="tabbar" class="fixed bottom-0 w-full max-w-[430px] bg-black border-t border-white/10 flex justify-around items-end h-[64px] pb-2 text-[10px]"></nav>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

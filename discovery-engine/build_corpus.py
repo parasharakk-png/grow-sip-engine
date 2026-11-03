@@ -39,6 +39,7 @@ ROOT = ENGINE.parent
 POOL_CSV = ROOT / "NL GROWW - cleaned_SIP_data_paste_into_sheets.backup.csv"
 RAW_CSV = ROOT / "raw_posts.csv"
 RAW_TARGETED_CSV = ROOT / "raw_posts_targeted.csv"
+DELIBERATE_CSV = ENGINE / "data" / "deliberate_stop_candidates.csv"
 MAIN_CHECKPOINT = ENGINE / "coded_posts.checkpoint.jsonl"
 CORPUS_CHECKPOINT = ENGINE / "data" / "corpus_first_time.checkpoint.jsonl"
 OUT_CORPUS = ENGINE / "data" / "corpus_first_time.csv"
@@ -113,7 +114,8 @@ LLM_SEGMENT_YOUNG = ("young_22_30", "first_job")
 def load_pool() -> pd.DataFrame:
     pool = pd.read_csv(POOL_CSV, dtype=str).fillna("")
     pool = pool[["item_id", "source", "platform_detail", "date_clean", "query", "title", "text", "url"]]
-    raw = pd.concat([pd.read_csv(p, dtype=str).fillna("") for p in (RAW_CSV, RAW_TARGETED_CSV) if p.exists()],
+    raw = pd.concat([pd.read_csv(p, dtype=str).fillna("")
+                     for p in (RAW_CSV, RAW_TARGETED_CSV, DELIBERATE_CSV) if p.exists()],
                     ignore_index=True).drop_duplicates("url")
     raw = raw[~raw["url"].isin(pool["url"]) & (raw["text"].str.len() >= 40)].copy()
     raw["source"] = raw["source"].map(RAW_SOURCE).fillna(raw["source"])

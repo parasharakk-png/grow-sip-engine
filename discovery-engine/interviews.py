@@ -84,16 +84,16 @@ INCIDENT_FIELDS = ("When", "Trigger (what they saw first)", "Who they asked, wha
 
 # Each clause of the Problem 2 statement, with the participants whose notes support it (coded from notes/P*.md).
 P2_EVIDENCE = [
-    ("Judge their SIP only by red or green", None,
-     "Judged by invested amount vs profit or loss; P4 stopped over a product rule, not returns"),
-    ("…against a one-year expectation", ("P1", "P2", "P3", "P5"),
-     "Expected growth \"in few months or 1 year\", 10–12% or 12–14% in a year, or a one-year goal"),
-    ("In months 6–12", ("P1", "P3", "P4"),
-     "Doubt peaked at months 6–8, 10 and 12; P2 stopped at about months 12–14 and P5 reduced at 14–15"),
+    ("Judges the SIP only by red or green", None,
+     "Judged by invested amount vs profit or loss. P4 stopped over a product rule, not returns."),
+    ("Judges it against a one-year expectation", ("P1", "P2", "P3", "P5"),
+     "Expected growth in a few months or 1 year, 10–12% or 12–14% in a year, or a one-year goal."),
+    ("The doubt is in months 6–12", ("P1", "P3", "P4"),
+     "Doubt peaked at months 6–8, 10 and 12. P2 stopped at about months 12–14 and P5 reduced at 14–15."),
     ("They ask whoever got them started", ("P1", "P4"),
-     "A colleague and a cousin settled it; the others turned to YouTubers, online research or a friend"),
-    ("Then stop, reduce, or move the money out of SIPs", ("P2", "P4", "P5"),
-     "Moved to FD / RD, a lump sum, and half to a gold scheme; P1 and P3 considered or plan to stop"),
+     "A colleague and a cousin settled it. The others turned to YouTubers, online research or a friend."),
+    ("Then they stop, reduce, or move the money out", ("P2", "P4", "P5"),
+     "Moved to an FD or RD, a lump sum, and half to a gold scheme. P1 and P3 considered or plan to stop."),
 ]
 
 

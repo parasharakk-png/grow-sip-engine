@@ -16,7 +16,8 @@ ENGINE_DIR = Path(__file__).resolve().parent
 ROOT = ENGINE_DIR.parent
 CORPUS = ENGINE_DIR / "data" / "grow_sip_956.csv"
 BACKUP = ROOT / "NL GROWW - cleaned_SIP_data_paste_into_sheets.backup.csv"
-RAW_FILES = (ROOT / "raw_posts.csv", ROOT / "raw_posts_targeted.csv")
+RAW_FILES = (ROOT / "raw_posts.csv", ROOT / "raw_posts_targeted.csv",
+             ENGINE_DIR / "data" / "deliberate_stop_candidates.csv")
 OUT = ENGINE_DIR / "data" / "post_dates.csv"
 
 RELATIVE = re.compile(r"(\d+)\s*(minute|hour|day|week|month|year)s?\s*ago", re.I)

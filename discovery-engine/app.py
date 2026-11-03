@@ -1280,7 +1280,52 @@ def _problem_mandate(m: dict, focus: dict, sc: pd.DataFrame, dec: dict | None) -
             )
 
 
-def _problem_panic(p: dict, focus: dict, sc: pd.DataFrame, dec: dict | None) -> None:
+def _deliberate_research(df: pd.DataFrame) -> None:
+    """Posts collected specifically about stopping a SIP on purpose, after the same filters as the corpus."""
+    path = ENGINE_DIR / "data" / "deliberate_stop_candidates.csv"
+    log_path = ENGINE_DIR / "data" / "selection_log.csv"
+    if not path.exists() or not log_path.exists():
+        return
+    from problem_fit import LABELS
+
+    cand = pd.read_csv(path, dtype=str).fillna("")
+    urls = set(cand["url"])
+    base = df[df["url"].isin(urls)]
+    log = pd.read_csv(log_path, dtype=str).fillna("")
+    logged = log[log["url"].isin(urls)].drop_duplicates("url")
+    dropped = int((~logged["decision"].str.startswith("kept")).sum())
+    labels = {t.code: t.label for t in STOP_REASONS}
+    status = (base["status"].map(LABELS["sip_status"]).fillna("Not stated")
+              .value_counts().rename_axis("SIP status").reset_index(name="Posts"))
+    cause = (base["primary_reason"].map(labels).fillna("Reason not stated")
+             .value_counts().rename_axis("Cause").reset_index(name="Posts"))
+    running = int(base["status"].eq("running_no_doubt").sum())
+    unsure = int(base["status"].eq("running_considering_stop").sum())
+    acted = int(base["status"].isin(["stopped", "stopped_and_switched", "paused_or_reduced"]).sum())
+    new = int(base["query_branch"].eq("deliberate_stop").sum())
+    st.markdown("#### Research base: stopping on purpose")
+    st.markdown(
+        f"A separate search on Reddit, TradingQ&A, YouTube, the Play Store and the App Store looked for people who "
+        f"**stopped a SIP on purpose**: a market fall, flat or low returns, moving to another asset, or frustration "
+        f"with averaging. **{len(cand)} posts** were collected (capped at 200). The same filters as the rest of the "
+        f"corpus — about SIPs, the author's own experience, not a duplicate — kept **{len(base)}**. "
+        f"{len(base) - new} of those were already in the corpus; **{new} are new**. **{dropped}** were dropped."
+    )
+    st.markdown(
+        f"Of the {len(base)} kept: **{running}** are still running with no doubt, **{unsure}** are unsure whether to "
+        f"stop, and **{acted}** have stopped, paused or moved the money. Most of this set is the moment of doubt or a "
+        "switch to another fund, which is the Problem 2 moment, rather than a finished exit caused by the fall alone."
+    )
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("**What they are doing with the SIP**")
+        st.dataframe(status, hide_index=True)
+    with c2:
+        st.markdown("**Cause read from the text**")
+        st.dataframe(cause, hide_index=True)
+
+
+def _problem_panic(p: dict, focus: dict, sc: pd.DataFrame, dec: dict | None, df: pd.DataFrame) -> None:
     o = p["opp"]
     with st.container(border=True):
         st.markdown("### Problem 2 · The stop decision: no way to judge their own SIP")
@@ -1331,11 +1376,22 @@ def _problem_panic(p: dict, focus: dict, sc: pd.DataFrame, dec: dict | None) -> 
             st.markdown("**Evidence against**")
             _quote_list(p["quotes_against"])
 
+        _deliberate_research(df)
+
         if dec:
             st.markdown(f"#### What the {dec['n']} interviews show")
             st.markdown(f"The risky moment was a stop decision for **{dec['stop_n']} of {dec['n']}** participants. "
                         "Each part of the problem statement, and who it comes from:")
-            st.table(p2_evidence(sc).set_index("Problem statement says").rename_axis(None))
+            st.dataframe(
+                p2_evidence(sc),
+                hide_index=True,
+                column_config={
+                    "Problem statement says": st.column_config.TextColumn(width="medium"),
+                    "Interviews": st.column_config.TextColumn(width="small"),
+                    "Who": st.column_config.TextColumn(width="small"),
+                    "What they said or did": st.column_config.TextColumn(width="large"),
+                },
+            )
 
         st.markdown("#### Solution")
         s1, s2 = st.columns(2)
@@ -1416,7 +1472,7 @@ def render_problem_validation_tab(df: pd.DataFrame) -> None:
     sc = load_scorecard()
     dec = decision(sc) if not sc.empty else None
     _problem_mandate(m, focus, sc, dec)
-    _problem_panic(p, focus, sc, dec)
+    _problem_panic(p, focus, sc, dec, df)
     if dec:
         _interview_evidence(sc, dec)
     else:

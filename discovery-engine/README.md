@@ -1,6 +1,6 @@
 # Groww SIP Discovery Engine
 
-A Streamlit app that tests two problem statements against **1,907 AI-coded public posts** (495 from first-time SIP investors, 1,412 from other investors as a comparison group) and **5 user interviews**.
+A Streamlit app that tests two problem statements against **1,917 AI-coded public posts** (526 from first-time SIP investors, 1,391 from other investors as a comparison group) and **5 user interviews**.
 
 Goal metric: % of first-time mutual fund investors with an active SIP at 12 months. No fund advice; no fear, FOMO or urgency.
 

@@ -63,8 +63,43 @@ CAUSE_CHECK_ORDER = [(5, "bank_account_issue"), (4, "insufficient_balance"), (3,
                      (2, "setup_incomplete"), (0, "platform_technical"), (1, "platform_technical")]
 
 
+SELECTION_LOG = GOLDEN_CSV.parent / "selection_log.csv"
+METADATA = ("cohort", "source", "url", "Platform")
+
+
 def load_golden(path: Path = GOLDEN_CSV) -> pd.DataFrame:
-    return pd.read_csv(path, dtype=str).fillna("")
+    """Golden rows; a post dropped as a duplicate is scored against the copy the corpus kept."""
+    g = pd.read_csv(path, dtype=str).fillna("")
+    if "human_verified" in g:
+        g["human_verified"] = g["human_verified"].str.strip().str.lower()
+    g["golden_item_id"] = g["item_id"]
+    if SELECTION_LOG.exists():
+        dup = pd.read_csv(SELECTION_LOG, dtype=str).fillna("").set_index("item_id")["duplicate_of"]
+        g["item_id"] = g["item_id"].map(lambda i: dup.get(i) or i)
+    return g
+
+
+def selection_check(golden: pd.DataFrame) -> dict:
+    """Did the selection pipeline keep the posts a human calls own experience, and drop the rest?"""
+    if not SELECTION_LOG.exists():
+        return {}
+    log = pd.read_csv(SELECTION_LOG, dtype=str).fillna("").set_index("item_id")
+    rows = []
+    for _, r in golden.iterrows():
+        rec = log.loc[r["golden_item_id"]] if r["golden_item_id"] in log.index else None
+        decision = rec["decision"] if rec is not None else "not in selection log"
+        rows.append({"item_id": r["golden_item_id"], "Human: own experience": r["own_experience"],
+                     "Pipeline kept": "yes" if r["item_id"] != r["golden_item_id"] or decision.startswith("kept")
+                     else "no", "Pipeline decision": decision})
+    t = pd.DataFrame(rows)
+    human_yes, kept = t["Human: own experience"].eq("yes"), t["Pipeline kept"].eq("yes")
+    return {
+        "table": t,
+        "agree": int((human_yes == kept).sum()),
+        "n": len(t),
+        "wrongly_dropped": t[human_yes & ~kept],
+        "wrongly_kept": t[~human_yes & kept],
+    }
 
 
 def _norm(text: str) -> str:
@@ -138,6 +173,7 @@ METHOD = {"rule": "Text rule (regex)", "llm": "LLM codebook", "engine": "Engine 
 
 def evaluate(golden: pd.DataFrame, df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Returns (scores per check, row-level disagreements, golden rows joined with engine labels)."""
+    golden = golden.drop(columns=[c for c in METADATA if c in golden and c in df])
     g = golden.merge(df.rename(columns={"emotion": "llm_emotion"}), on="item_id", how="inner")
     g = g[g["own_experience"].eq("yes")].copy()
     g["is_anxious"] = g["emotion"].eq("anxious").map({True: "yes", False: "no"})
@@ -208,6 +244,11 @@ def main() -> None:
         print(f"\n{len(misses)} disagreements")
         print(misses[["item_id", "What is checked", "Engine method", "Human label", "Engine label"]].to_string(index=False))
     print(summary_counts(golden))
+    sel = selection_check(golden)
+    if sel:
+        print(f"\nSelection screen agrees with the human 'own experience' label on {sel['agree']} of {sel['n']}")
+        print(sel["table"][sel["table"]["Human: own experience"].ne("yes") | sel["table"]["Pipeline kept"].ne("yes")]
+              .to_string(index=False))
 
 
 if __name__ == "__main__":

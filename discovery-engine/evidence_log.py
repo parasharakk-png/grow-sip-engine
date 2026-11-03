@@ -89,17 +89,17 @@ def build() -> str:
 
     st.cache_data = lambda *a, **k: (lambda f: f) if not a or not callable(a[0]) else a[0]
     import app
-    from golden_set_eval import evaluate, load_golden, summary_counts, validate
+    from golden_set_eval import SELECTION_LOG, evaluate, load_golden, selection_check, summary_counts
     from question_guard import run_guard_tests
 
     df = app.load_posts()
-    log = pd.read_csv(app.SELECTION_LOG, dtype=str).fillna("")
+    log = pd.read_csv(SELECTION_LOG, dtype=str).fillna("")
     golden = load_golden()
-    issues = validate(golden, df)
-    missing = [i.split(":")[0] for i in issues if i.endswith("not in corpus")]
+    sel = selection_check(golden)
     scores, misses, _ = evaluate(golden, df)
     sc = summary_counts(golden)
-    verified = int(golden.get("human_verified", pd.Series(dtype=str)).fillna("").str.strip().ne("").sum())
+    verified = int(golden.get("human_verified", pd.Series(dtype=str)).eq("yes").sum())
+    dropped = sel["wrongly_dropped"]["item_id"].tolist()
     risk = df[df["is_at_risk"]]
     target = app.COHORT_TARGET
 
@@ -184,8 +184,14 @@ def build() -> str:
          if verified == len(golden) else
          f"- **Hand check:** labels were drafted with AI help; **{verified} of {len(golden)}** checked by me so "
          "far (column `human_verified`). Scores below are against the current labels."),
-        (f"- {len(missing)} golden posts ({', '.join('#' + m for m in missing)}) left the corpus in the latest rebuild "
-         "and are excluded from scoring." if missing else "- All golden posts are in the current corpus."),
+        f"- **Selection screen check:** the pipeline's keep/drop decision matched my *own experience* label on "
+        f"**{sel['agree']} of {sel['n']}** golden posts. "
+        + (f"It wrongly dropped {len(dropped)} real first-person "
+           f"{'story' if len(dropped) == 1 else 'stories'} ({', '.join('#' + i for i in dropped)}). "
+           if dropped else "It kept every post I marked as the author's own experience. ")
+        + (f"It wrongly kept {len(sel['wrongly_kept'])}. " if len(sel['wrongly_kept']) else "")
+        + f"The tables use {int(golden['item_id'].isin(set(df['item_id'])).sum())} rows: post #398 is correctly "
+        "excluded, and #2547 is scored as its kept duplicate #1405.",
         "",
         "**How often the engine agreed with me**",
         "",
@@ -246,6 +252,8 @@ def build() -> str:
         "first-time splits are hypotheses for the interviews, not measurements.",
         "- Uplift estimates combine post shares with fixed assumptions (40% lapse rate, 30% recovery, "
         "addressability per opportunity); Groww cohort data would replace them.",
+        f"- The AI selection screen loses some real stories ({len(dropped)} of "
+        f"{int(golden['own_experience'].eq('yes').sum())} in the golden set), so counts are slightly conservative.",
         f"- The golden set is small ({len(golden)} rows) and checked by one person"
         + (f"; {len(golden) - verified} rows still await that check." if verified < len(golden) else "."),
     ]

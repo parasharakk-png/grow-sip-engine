@@ -1,6 +1,6 @@
 # Golden set review
 
-35 posts. For each one, read the post and check every label against the definition. Mark **OK** or write the correction (e.g. `action = reduced`). Definitions are at the end.
+20 posts. For each one, read the post and check every label against the definition. Mark **OK** or write the correction (e.g. `action = reduced`). Definitions are at the end.
 
 ## #279 · P2 · core_positive
 
@@ -98,76 +98,6 @@
 
 **Your check:** OK ☐ · Correction: ______
 
-## #992 · P2 · core_positive
-
-[Source](https://www.reddit.com/r/IndiaInvestments/comments/8n0dj7/is_the_whole_mf_market_down/)
-
-> Is the whole MF market down? Hey guys, so I started doing SIPs in MFs since almost a year back. I am currently in red. Unfortunately, I don't have a lot of knowledge on the market to invest wisely and doing it through a PF manager. What I'm being told is that the whole market is down right now and I should wait for it to bounce back and see returns and that its very difficult to make money in the market right now. Is this the general sentiment right now? Should I continue my SIPs for another year to see any returns?( I can get better returns in FD seeing the present condition right now).
-
-**Quote used:** "What I'm being told is that the whole market is down right now ... Is this the general sentiment right now? Should I continue my SIPs for another year to see any returns?"
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| fall_experienced | yes |
-| emotion | confused |
-| action | considering_stop |
-| fall_drove_action | yes |
-| stop_reason | expectation_gap |
-| seeks_peer_behaviour | yes |
-| user_need | normalcy_check |
-| nudge_fit | yes |
-
-**Rationale:** One year in, in the red, compares with FD. Asks whether everyone is in the same position, which a 'most investors in this fund kept their SIP' fact answers. Medium confidence because 'sentiment' is not the same as behaviour.
-
-**Your check:** OK ☐ · Correction: ______
-
-## #936 · P2 · core_positive
-
-*Post not in the current corpus; check against the quote below.*
-
-**Quote used:** "Is there some hope that they would recover well and give me good returns if I keep my faith in them and continue to do SIPs in them"
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| fall_experienced | yes |
-| emotion | discouraged |
-| action | considering_stop |
-| fall_drove_action | yes |
-| stop_reason | expectation_gap |
-| seeks_peer_behaviour | no |
-| user_need | recovery_outlook |
-| nudge_fit | partial |
-
-**Rationale:** First-ever SIPs all declined right after starting ('as soon as I entered the market, all started falling'). Stop intent is implied, not stated. Needs a recovery outlook more than peer behaviour.
-
-**Your check:** OK ☐ · Correction: ______
-
-## #538 · P2 · core_positive
-
-[Source](https://www.reddit.com/r/mutualfunds/comments/1mmsyff/urgent_need_help_reviewing_my_sip_portfolio/)
-
-> URGENT!! Need help reviewing my SIP portfolio – ₹45k/month, home loan ongoing, returns are terrible. Hi everyone, I am 28 and have been investing around ₹45,000 per month through SIPs for a while now, but my portfolio’s returns are really disappointing. I expected some ups and downs, but right now it feels like I’m just bleeding money. A few more details: - I have an active home loan. - My investment horizon is long term : ideally 10–15 years, maybe even up to 20 years. - Risk appetite: Medium/High (mainly for a longer term) - Aiming for retirement corpus (not sure how feasible this is) I’m looking for help to figure out: - Am I in the wrong funds for my goals and time horizon? - Is this just a temporary market phase I should ride out? - Should I rebalance, switch funds, or adjust my allocation? Thanks in advance 🙏🏻
-
-**Quote used:** "I expected some ups and downs, but right now it feels like I'm just bleeding money ... Is this just a temporary market phase I should ride out?"
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| fall_experienced | yes |
-| emotion | anxious |
-| action | considering_switch |
-| fall_drove_action | yes |
-| stop_reason | expectation_gap |
-| seeks_peer_behaviour | no |
-| user_need | recovery_outlook |
-| nudge_fit | partial |
-
-**Rationale:** 28, 45K/month, home loan. Clear fall-driven anxiety but the option on the table is switching or rebalancing, not stopping. The engine's market-fall pattern misses it because no 'market fall' words are used.
-
-**Your check:** OK ☐ · Correction: ______
-
 ## #470 · P2 · early_signal
 
 [Source](https://www.reddit.com/r/mutualfunds/comments/1usu5z2/started_my_first_sips_but_one_is_already_in_the/)
@@ -238,30 +168,6 @@
 
 **Your check:** OK ☐ · Correction: ______
 
-## #422 · P2 · hard_negative
-
-[Source](https://www.reddit.com/r/mutualfunds/comments/1imr1mu/wait_for_the_dip_to_get_over_or_continue_with_sip/)
-
-> Wait for the dip to get over or continue with SIP? So, I’ve a sufficiently large chunk of money upwards of 40L waiting to be invested and till now I was SIPing it into multiple MFs. Now, we all know the markets were overbought and it’s now correcting. Do you all think I should pause my SIPs till the market completes its correction? I’m thinking that the market will either continue to go down or go sideways for the next 6 months. So, is it wise to stop the SIP now and wait for some time before I resume the SIP? Or should I just forget and continue to do the SIP. Investment horizon: 10 years SIP is in flexi, mid, contra and small cap. Thanks in advance!
-
-**Quote used:** "Do you all think I should pause my SIPs till the market completes its correction?"
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| fall_experienced | yes |
-| emotion | calm |
-| action | considering_stop |
-| fall_drove_action | yes |
-| stop_reason | market_timing |
-| seeks_peer_behaviour | no |
-| user_need | decision_help |
-| nudge_fit | no |
-
-**Rationale:** 40L to deploy; a deliberate timing plan, not panic. Already knows the 'just continue' advice. Peer behaviour does not change a timing view.
-
-**Your check:** OK ☐ · Correction: ______
-
 ## #1027 · P2 · hard_negative
 
 [Source](https://www.reddit.com/r/personalfinanceindia/comments/1dh9y70/should_i_stop_monthly_sips_and_start_doing/)
@@ -307,54 +213,6 @@
 | nudge_fit | no |
 
 **Rationale:** Stopped the SIP during a fall, but happily and on purpose (lump sums on dips). The panic pattern matches only because the post mentions other newbies 'getting worried'. Shows a fall plus a stop is not panic.
-
-**Your check:** OK ☐ · Correction: ______
-
-## #547 · P2 · hard_negative
-
-[Source](https://www.reddit.com/r/mutualfunds/comments/1hutyte/should_i_redeem_my_sip_with_28_return/)
-
-> Should I redeem my sip with 28% return I have been investing since last three years and the returns are dropped from 40% to 28-27%. Looking at the average return of any sip which 12-15% this is almost double. I don't think it will again shoot up to 40% (post covid era). Should I redeem or keep investing ? My reason for redeem is currently market is downtrending and I can book my profit and reinvest it in top performing MF. That will avoid the loss on profit and incur profit without investing from my salary. I am newbie so please be kind to explain the sarcasm as well.
-
-**Quote used:** "My reason for redeem is currently market is downtrending and I can book my profit and reinvest it in top performing MF."
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| fall_experienced | yes |
-| emotion | calm |
-| action | considering_stop |
-| fall_drove_action | yes |
-| stop_reason | market_timing |
-| seeks_peer_behaviour | no |
-| user_need | decision_help |
-| nudge_fit | no |
-
-**Rationale:** Self-described newbie at +28%. Wants to book profit and chase top performers: timing and return-chasing, not fear.
-
-**Your check:** OK ☐ · Correction: ______
-
-## #286 · P2 · hard_negative
-
-[Source](https://www.reddit.com/r/mutualfunds/comments/1r1x6a3/stopped_sip_in_smallmid_caps_due_to_poor/)
-
-> Stopped SIP in small/mid caps due to poor performance – Looking for better no lock-in mutual fund options (India). I was investing ₹15,000 per month (₹5,000 each) in the following mutual funds for some time: • Nippon India Small Cap Fund • Quant Small Cap Fund • Motilal Oswal Midcap Fund Recently, I noticed they were not performing well (currently either marginal gains or in loss), so I stopped my SIPs. Now I’m looking to restart investing, but I want: • Funds with no lock-in • Better consistency / relatively stable performance • Long-term investment (5+ years) • Moderate to high risk is okay, but not extreme volatility like small caps My questions: 1. Should I avoid small caps completely in current market conditions? 2. Is it better to move to large cap / flexi cap / index funds? 3. Any specific fund suggestions that have shown consistent long-term performance? 4. Should I diversify …
-
-**Quote used:** "Recently, I noticed they were not performing well (currently either marginal gains or in loss), so I stopped my SIPs."
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| fall_experienced | yes |
-| emotion | discouraged |
-| action | stopped_or_paused |
-| fall_drove_action | yes |
-| stop_reason | fund_underperformance |
-| seeks_peer_behaviour | no |
-| user_need | fund_choice |
-| nudge_fit | no |
-
-**Rationale:** Stopped small/mid-cap SIPs and wants fund suggestions. The driver is the fund category, and the ask (which fund) is outside what we may answer.
 
 **Your check:** OK ☐ · Correction: ______
 
@@ -406,54 +264,6 @@
 
 **Your check:** OK ☐ · Correction: ______
 
-## #460 · P2 · hard_negative
-
-[Source](https://www.reddit.com/r/mutualfunds/comments/1q5d7fh/portfolio_review_beginner/)
-
-> Portfolio Review - Beginner Investment Horizon: 10 Years+ Risk Profile / Risk Tolerance: Aggressive Goal: Retirement Portfolio Details: (a) Motilal Oswal Midcap Fund – Direct (Growth) • SIP: Active • Current Value: ₹31,723 • Amount Invested: ₹32,499 (b) Parag Parikh Flexi Cap Fund – Direct (Growth) • SIP: Active • Current Value: ₹23,090 • Amount Invested: ₹22,499 (c) HDFC NIFTY Next 50 Index Fund – Direct (Growth) • SIP: Not specified • Current Value: ₹2,001 • Amount Invested: ₹2,000 Overall Portfolio Summary: • Total Invested: ₹57,824 • Current Value: ₹57,621 • Total Returns: -₹203 (-0.35%) • XIRR: -0.62% Request for Suggestions: I started investing in October 2024, which coincided with a market downturn, and my portfolio has mostly been in the red since then. Due to financial constraints, I paused my SIPs for a while but have recently restarted them. Currently, I am investing ₹3,000 …
-
-**Quote used:** "I started investing in October 2024, which coincided with a market downturn ... Due to financial constraints, I paused my SIPs for a while but have recently restarted them."
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| fall_experienced | yes |
-| emotion | none |
-| action | stopped_or_paused |
-| fall_drove_action | no |
-| stop_reason | cash_need |
-| seeks_peer_behaviour | no |
-| user_need | recovery_outlook |
-| nudge_fit | no |
-
-**Rationale:** A fall and a pause appear together, but the stated cause of the pause is money, not the fall. Restarted on their own.
-
-**Your check:** OK ☐ · Correction: ______
-
-## #802 · P2 · counter_evidence
-
-[Source](https://www.reddit.com/r/IndiaInvestments/comments/hm478o/did_your_portfolio_recover_from_the_crash_in_march/)
-
-> Did your portfolio recover from the crash in march? I know from the threads during the march/april period that most redditors here redeemed and got out of market after seeing the market carnage during that time. But I'm sure a lot of guys like me might have still stuck around waiting out the storm (even if they were doubting their decision). I myself continued my investment journey of 4 years and witnessed the brain churning market drop that eroded away massive 27 % of my invested money (not including gains). I'm still in red but only by -1.05%. But I'm glad I didn't redeem and make a HUGE loss even though I was continuously doubting my decision under severe stress and anxiety. Within 1 month I lost more than what I was earning in full salary for last couple of years into thin air and even my parents were nagging me about my decision to invest in markets. I never stopped the SIPs even …
-
-**Quote used:** "I never stopped the SIPs even though I had a hard time convincing myself ... even my parents were nagging me"
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| fall_experienced | yes |
-| emotion | anxious |
-| action | continued |
-| fall_drove_action | na |
-| stop_reason | na |
-| seeks_peer_behaviour | yes |
-| user_need | peer_behaviour |
-| nudge_fit | na |
-
-**Rationale:** Continued through the March 2020 crash despite 'severe stress and anxiety' and family pressure. Shows that fear alone does not decide the outcome; what the continuer had was conviction.
-
-**Your check:** OK ☐ · Correction: ______
-
 ## #310 · P2 · counter_evidence
 
 [Source](https://www.reddit.com/r/mutualfunds/comments/1wjjig6/would_market_ever_recover_xirr_24_to_9/)
@@ -475,30 +285,6 @@
 | nudge_fit | na |
 
 **Rationale:** XIRR 24% to 9%, still continuing, and asks what others plan. Family members who started later are in losses. The engine's 'asks others' pattern misses 'What are your plans?'.
-
-**Your check:** OK ☐ · Correction: ______
-
-## #659 · P2 · counter_evidence
-
-[Source](https://www.reddit.com/r/mutualfunds/comments/1t1hrp9/i_need_a_portfolio_review/)
-
-> I need a portfolio review SIP 3K/month I’m a student so right now doing SIPs of 3k, not very much experienced so things have started overlapping, I am confused as if which fund to remove and in which fund shall I keep investing or how do I do the sector allocation. I’ve been invested for almost more than an year Risk appetite - high Horizon - 20-25 years Also started accumulating in debt funds to take advantage and invest that money when market crashes because whenever market crashed in the past I was out of funds to average my nav as for Motilal midcap I’m in -15% xirr SIPs ₹1000 - Nippon Large Cap ₹1000 - Invesco mid cap ( earlier I was doing it in Motilal mid cap fund but I don’t see that doing good) and still confused whether to go with that or change to invesco ₹500 - HDFC short term debt funds ₹500 - from this month I’ll be starting to invest in small cap This all looks messed up …
-
-**Quote used:** "I see people started at the same time and their portfolio is already 15% up ... It kind of demotivates me"
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| fall_experienced | yes |
-| emotion | discouraged |
-| action | considering_switch |
-| fall_drove_action | yes |
-| stop_reason | fund_underperformance |
-| seeks_peer_behaviour | no |
-| user_need | fund_choice |
-| nudge_fit | no |
-
-**Rationale:** Student at -15% XIRR. Comparing himself with peers' returns demotivated him. A risk for the nudge design: show what others did (kept investing), never what others earned.
 
 **Your check:** OK ☐ · Correction: ______
 
@@ -547,29 +333,6 @@
 
 **Your check:** OK ☐ · Correction: ______
 
-## #146 · P1 · core_positive
-
-[Source](https://play.google.com/store/apps/details?id=com.nextbillion.groww&reviewId=c3b92199-9372-4846-a64e-15bda53c9cac)
-
-> not helping..don't start sip through this app.. not working m we have to do manual investing. even after activating Autopay sips gets cancelled. bank balance everything was there. not working. won't recommend. only good for investing in stock that too to long term. not good for day trading. using this for mutual fund mainly. real waste of time
-
-**Quote used:** "even after activating Autopay sips gets cancelled. bank balance everything was there."
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| payment_failure | yes |
-| failure_cause | platform_technical |
-| account_change | no |
-| two_account_setup | no |
-| failure_notified | unknown |
-| user_fixable | no |
-| lapse_outcome | stopped |
-
-**Rationale:** Autopay SIPs cancelled despite enough balance; user gives up on SIPs on the app ('don't start sip through this app').
-
-**Your check:** OK ☐ · Correction: ______
-
 ## #259 · P1 · core_positive
 
 [Source](https://apps.apple.com/in/app/id1404871703?see-all=reviews#14513112433)
@@ -593,29 +356,6 @@
 
 **Your check:** OK ☐ · Correction: ______
 
-## #651 · P1 · core_positive
-
-[Source](https://www.reddit.com/r/mutualfunds/comments/1v1o9o0/need_help_hdfc_account_frozen_cant_change_bank/)
-
-> Need Help: HDFC Account Frozen – Can’t Change Bank Account for ICICI Nasdaq SIP Hi everyone, I need some advice regarding an SIP issue. My HDFC savings account has been temporarily frozen due to a bank compliance review. The bank has informed me that the issue is under process, and I’m expecting the account to be operational by the end of next week. The problem is that I have a few SIP auto-debits scheduled before then. For most of my mutual funds, I’m able to skip the upcoming SIP installment or change the payment instructions. However, for my **ICICI Prudential NASDAQ Index Fund SIP**, I don’t see any option to skip the installment or change the registered bank account. The only option available is to cancel the SIP, which I would prefer to avoid. Has anyone faced a similar situation? Is it possible to change the primary/default bank account for an existing ICICI Prudential SIP …
-
-**Quote used:** "I don't see any option to skip the installment or change the registered bank account. The only option available is to cancel the SIP, which I would prefer to avoid."
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| payment_failure | no |
-| failure_cause | bank_account_issue |
-| account_change | yes |
-| two_account_setup | no |
-| failure_notified | na |
-| user_fixable | no |
-| lapse_outcome | at_risk |
-
-**Rationale:** Bank account frozen; the product offers only 'cancel'. The user wants to keep the SIP but the only path offered ends it.
-
-**Your check:** OK ☐ · Correction: ______
-
 ## #895 · P1 · core_positive
 
 [Source](https://www.reddit.com/r/IndiaInvestments/comments/rjdfl3/hi_is_their_anyway_to_get_refund_of_ach_debit/)
@@ -636,52 +376,6 @@
 | lapse_outcome | missed_instalment |
 
 **Rationale:** Salary lands in one bank, SIPs debit from another. A manual transfer was delayed by bank holidays and failed SIPs cost over Rs 3,000 in charges.
-
-**Your check:** OK ☐ · Correction: ______
-
-## #1115 · P1 · core_positive
-
-[Source](https://www.reddit.com/r/personalfinanceindia/comments/1telwwr/my_bank_charged_me_590_twice_for_nach_return_what/)
-
-> My bank charged me ₹590 twice for NACH return — what does this mean? So i got charged ₹590 twice by my bank with the description: I think this happened because I missed my SIP auto-debit. I actually had enough money overall, but the funds were in a different bank account, this bank account is used mainly for SIP deductions, and I forgot to maintain balance in it. Wanted to ask: Are these standard SIP/NACH bounce charges? Is ₹590 per failed debit normal now? Has anyone been able to get these charges reversed by contacting the bank? Would really appreciate any advice or similar experiences.
-
-**Quote used:** "I actually had enough money overall, but the funds were in a different bank account, this bank account is used mainly for SIP deductions, and I forgot to maintain balance in it."
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| payment_failure | yes |
-| failure_cause | insufficient_balance |
-| account_change | no |
-| two_account_setup | yes |
-| failure_notified | no |
-| user_fixable | yes |
-| lapse_outcome | missed_instalment |
-
-**Rationale:** Same two-account mechanism. Learned about the failure only from Rs 590 x2 bounce charges.
-
-**Your check:** OK ☐ · Correction: ______
-
-## #638 · P1 · core_positive
-
-[Source](https://www.reddit.com/r/mutualfunds/comments/1s18xyc/sip_failed_because_of_insufficient_balance/)
-
-> SIP failed because of insufficient balance Today was the due date. I forgot to transfer to my investment account, because of this it failed and I was also charged penalty of Rs 295 by SBI. I have couple of questions: 1. Now I have transferred the money. Will they retry the transaction again or it will be done directly on next sip date? 2. Regarding the penalty, is there any chance to recover it? I know my mistake but still want to know if I can get it back if I request bank.
-
-**Quote used:** "I forgot to transfer to my investment account, because of this it failed and I was also charged penalty of Rs 295 by SBI."
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| payment_failure | yes |
-| failure_cause | insufficient_balance |
-| account_change | no |
-| two_account_setup | yes |
-| failure_notified | unknown |
-| user_fixable | yes |
-| lapse_outcome | missed_instalment |
-
-**Rationale:** Separate investment account, missed manual top-up, bounce penalty. Asks whether it will be retried.
 
 **Your check:** OK ☐ · Correction: ______
 
@@ -731,32 +425,11 @@
 
 **Your check:** OK ☐ · Correction: ______
 
-## #1083 · P1 · core_positive
+## #1405 · P1 · core_positive
 
-[Source](https://www.reddit.com/r/personalfinanceindia/comments/1mpnz39/kuvera_stole_my_money_i_no_longer_recommend/)
+[Source](https://tradingqna.com/t/coins-customer-workflow-is-broken-for-auto-sip/173335/1)
 
-> Kuvera Stole My Money. I no longer recommend Kuvera for MF investing. This happened to me and with this post I just want to make people aware of it. So, I've been investing in a Quant MF via Kuvera since last 2 years (not much, 7000 every month). But today I suddenly get an email from Quant MF that they are stopping my SIP due to three consecutive SIP transaction failure. Which was odd to me me, since every month 7000 is debited from my account on time. I felt suspicious and logged in on Kuvera to check my transaction history. On Kuvera, it's showing every transaction, no failed transaction of missing transaction. Then I went to Quant MF website, logged in using my PAN and when I checked the transaction history there, lo and behold, the last transaction was done 3 month earlier (May 2025). No records of transactions done on June, July and August months. Also, the total amount invested …
-
-**Quote used:** "I suddenly get an email from Quant MF that they are stopping my SIP due to three consecutive SIP transaction failure. Which was odd to me me, since every month 7000 is debited from my account on time."
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| payment_failure | yes |
-| failure_cause | platform_technical |
-| account_change | no |
-| two_account_setup | no |
-| failure_notified | no |
-| user_fixable | no |
-| lapse_outcome | stopped |
-
-**Rationale:** Platform showed success while the fund house recorded nothing for 3 months, then the SIP was cancelled. The user could not have seen it from the app.
-
-**Your check:** OK ☐ · Correction: ______
-
-## #2547 · P1 · core_positive
-
-*Post not in the current corpus; check against the quote below.*
+> Coin's customer workflow is broken for auto SIP I was wondering why my sip was never executed which i have put in for months Zerodha support tells me i need to start sip manually with a lump sum first then it gets auto-deducted. This is not mentioned anywhere during starting a SIP on coin,i lost 6 months of nice returns due to this. The whole ...
 
 **Quote used:** "I was wondering why my sip was never executed which i have put in for months ... This is not mentioned anywhere during starting a SIP"
 
@@ -772,27 +445,6 @@
 | lapse_outcome | missed_instalment |
 
 **Rationale:** First-timer whose SIP never ran for 6 months because a setup step was not explained.
-
-**Your check:** OK ☐ · Correction: ______
-
-## #1106 · P1 · core_positive
-
-*Post not in the current corpus; check against the quote below.*
-
-**Quote used:** "today, I was met with several ACH debit returns something which I am assuming is due to failed SIPs. But this is something I never noticed before."
-
-| Label | Value |
-|---|---|
-| own_experience | yes |
-| payment_failure | yes |
-| failure_cause | insufficient_balance |
-| account_change | no |
-| two_account_setup | no |
-| failure_notified | no |
-| user_fixable | yes |
-| lapse_outcome | missed_instalment |
-
-**Rationale:** Fresh graduate who cannot keep the minimum balance. Bounce charges of about Rs 4K were found late. The cause is inferred by the user, so medium confidence.
 
 **Your check:** OK ☐ · Correction: ______
 

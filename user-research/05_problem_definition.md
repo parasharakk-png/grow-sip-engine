@@ -28,7 +28,7 @@ From my own understanding of the product, SIPs end in one of two ways: the payme
 
 ### What the evidence says about each reason
 
-Posts = posts about stopping or lapsing (414 in all; 62 from first-time investors). Interviews = P1–P5.
+Posts = posts about stopping or lapsing (447 in all; 68 from first-time investors). Interviews = P1–P5.
 
 | Reason | Posts | Interviews | Verdict |
 |---|---|---|---|
@@ -46,7 +46,7 @@ Two reasons I hadn't listed came up in interviews: money redirected outside SIPs
 
 | Element | Answer | Evidence |
 |---|---|---|
-| **Target segment** | First-time SIP investors, 22–32, mostly salaried, ₹1k–10k+ a month, who started on someone else's word (a colleague, family member or YouTuber) and are 6–15 months in | Interviews P1–P5; 495 first-time investor posts |
+| **Target segment** | First-time SIP investors, 22–32, mostly salaried, ₹1k–10k+ a month, who started on someone else's word (a colleague, family member or YouTuber) and are 6–15 months in | Interviews P1–P5; 526 first-time investor posts |
 | **Moment** | The first time the SIP has looked red or flat for months against what they expected after a year, and they open the app wondering whether to keep going | Risky moment was a stop decision for 5 of 5; doubt peaked at months 6–15 |
 | **Product outcome** | At the "should I stop?" moment, the investor continues, reduces, skips or changes the date instead of cancelling (branches B and C of the metric tree) | Metric decomposition |
 | **Root cause** | They have no yardstick of their own. They started with a borrowed goal and a one-year expectation, and the app shows returns, not progress against their own goal and horizon. So they borrow a verdict from someone else | 4 of 5 judged only by red / green against a one-year expectation; P3: "everything seems very vast and not able to get any conclusions" |
@@ -60,7 +60,7 @@ Two reasons I hadn't listed came up in interviews: money redirected outside SIPs
 |---|---|---|
 | **Business metric** | 12-month continuation is one number | An active SIP needs one successful instalment in 30 days, so a SIP can end by a decision *or* by a failed payment, and a lapse can be recovered |
 | **Product outcomes** | Five branches: activation, instalments succeed, a pause doesn't become a stop, the investor keeps choosing to continue, the investor can tell it's working | Metric decomposition tree |
-| **AI discovery** | My two hypotheses: (1) failed payments, from systems down, low balance or an old bank account; (2) intentional stops, from a fund not understood, a falling market or averaging out of cash | 1,907 coded posts. In first-time posts the two problems are about level (25.8% vs 29.0% of posts about stopping; +2.7 vs +2.3 pp). The old-account cause wasn't visible (0 posts link a job change to a mandate); most payment posts say the failure had no reason given; falls were mentioned *more* by continuers, so a falling market alone didn't separate stoppers |
+| **AI discovery** | My two hypotheses: (1) failed payments, from systems down, low balance or an old bank account; (2) intentional stops, from a fund not understood, a falling market or averaging out of cash | 1,917 coded posts. In first-time posts the two problems are about level (27.9% vs 29.4% of posts about stopping; +2.9 vs +2.3 pp). The old-account cause wasn't visible (0 posts link a job change to a mandate); most payment posts say the failure had no reason given; falls were mentioned *more* by continuers, so a falling market alone didn't separate stoppers |
 | **Primary research** | The engine leaned towards payment failure for first-timers | 5 interviews: the risky moment was a stop decision for 5 of 5 and a failed instalment for 0 of 5. Two had a failure; both found it only by opening the app and neither stopped over it. Peer stats mattered to 1 of 5 |
 | **Problem definition** | "Investors panic and stop when markets fall" | The fall is only the trigger. The cause is having no yardstick of their own, so the decision is borrowed from someone else |
 
