@@ -1,43 +1,69 @@
-/* Groww-style Mutual Funds prototype: Dashboard, SIPs, SIP Details and the cancel sheet.
-   Fund figures are samples for the prototype, not live Groww data. The check-in never
-   names a fund to buy and declines fear or urgency requests. */
+/* Groww-style Mutual Funds prototype: Dashboard, SIPs, SIP Details and the "before you cancel" check-in.
+   Only users who tap Cancel SIP see the check-in; Dashboard and SIPs carry no nudges.
+   Figures are samples for the prototype, not live Groww data. Every reply passes a number check and an
+   advice / urgency check before it is shown; a failed check shows a plain fact template instead. */
 
 const FUNDS = [
   { id: "absl-psu", scheme: "Aditya Birla Sun Life PSU Equity Fund Direct Growth", logo: "AB", logoBg: "bg-[#c8102e]",
     monthly: 200, months: 14, value: 3240, sipDay: 5, sipId: "SIP1140919244119463",
-    returns: { 5: 18.4, 3: 24.1 }, investors: "21.6 lakh", activeSips: "6.4 lakh", avgSip: 4200 },
+    category: "thematic", navs: [31.8, 29.6, 27.9], elss: false },
   { id: "groww-total", scheme: "Groww Nifty Total Market Index Fund Direct Growth", logo: "G",
     logoBg: "bg-gradient-to-br from-sky-400 to-groww", monthly: 500, months: 9, value: 4710, sipDay: 5,
-    sipId: "SIP1140919244120118", returns: { 5: null, 3: 13.2 }, investors: "1.9 lakh", activeSips: "78,000",
-    avgSip: 1800 },
+    sipId: "SIP1140919244120118", category: "broad_index", navs: [11.9, 11.4, 11.1], elss: false },
   { id: "bandhan-n50", scheme: "Bandhan Nifty 50 Index Fund Direct Plan Growth", logo: "B", logoBg: "bg-[#e2231a]",
     monthly: 500, months: 18, value: 10350, sipDay: 28, sipId: "SIP1140919244121702",
-    returns: { 5: 14.6, 3: 12.9 }, investors: "4.3 lakh", activeSips: "1.6 lakh", avgSip: 2500 },
+    category: "large_index", navs: [52.4, 51.0, 50.2], elss: false },
   { id: "quant-small", scheme: "Quant Small Cap Fund Direct Plan Growth", logo: "q", logoBg: "bg-black border border-white/30",
     monthly: 2000, months: 12, value: 22600, sipDay: 28, sipId: "SIP1140919244122377",
-    returns: { 5: 31.2, 3: 22.8 }, investors: "28.4 lakh", activeSips: "9.1 lakh", avgSip: 3100 },
+    category: "small_cap", navs: [268.1, 251.4, 239.7], elss: false },
   { id: "sbi-psu", scheme: "SBI PSU Direct Plan Growth", logo: "SBI", logoBg: "bg-[#1a75bc]",
     monthly: 500, months: 6, value: 2870, sipDay: 28, sipId: "SIP1140919244123051",
-    returns: { 5: 27.5, 3: 30.4 }, investors: "3.7 lakh", activeSips: "1.2 lakh", avgSip: 2300 },
+    category: "thematic", navs: [36.2, 33.9, 32.5], elss: false },
 ];
 
+/* Sample history of SIPs at each age, by category: share below the amount invested, and the usual range.
+   The live version would compute this from rolling SIP returns for the category. */
+const CATEGORY = {
+  large_index: { label: "large-cap index funds", ages: { 6: [35, -12, 22], 12: [30, -15, 30], 18: [25, -14, 32] } },
+  broad_index: { label: "broad market index funds", ages: { 6: [36, -13, 24], 12: [31, -16, 32], 18: [26, -15, 35] } },
+  small_cap: { label: "small-cap funds", ages: { 6: [40, -20, 35], 12: [38, -25, 45], 18: [33, -24, 55] } },
+  thematic: { label: "sector and theme funds", ages: { 6: [42, -22, 40], 12: [40, -28, 55], 18: [35, -27, 60] } },
+};
+
+const REASONS = [
+  { id: "fall", label: "Market fell" },
+  { id: "flat", label: "Returns flat or low" },
+  { id: "cash", label: "Need the money" },
+  { id: "move", label: "Moving to FD / RD / gold" },
+  { id: "lockin", label: "Locked in (ELSS)", elssOnly: true },
+  { id: "fund", label: "Unsure about this fund" },
+];
+
+FUNDS.forEach((f) => { f.invested = f.monthly * f.months; });
+const ORIGINAL = FUNDS.map((f) => ({ monthly: f.monthly, sipDay: f.sipDay }));
 const TABS = ["Explore", "Dashboard", "SIPs", "Watchlist"];
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const EVENTS_KEY = "sipCancelEvents";
 
 const state = {
   tab: "Dashboard",
   screen: "tab",
   fundId: null,
   sheet: false,
-  years: 5,
   cancelled: new Set(),
+  skipped: new Set(),
   toast: "",
+  reason: null,
   draft: "",
   answer: null,
+  option: null,
+  pickAmount: null,
+  pickDay: null,
 };
 
 const $ = (id) => document.getElementById(id);
 const inr = (n) => "₹" + Math.round(n).toLocaleString("en-IN");
+const pctStr = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toFixed(1) + "%";
 const today = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
 const fmt = (d, year = false) => `${String(d.getDate()).padStart(2, "0")} ${MONTHS[d.getMonth()]}${year ? " " + d.getFullYear() : ""}`;
 const ordinal = (n) => {
@@ -49,16 +75,17 @@ function active() { return FUNDS.filter((f) => !state.cancelled.has(f.id)); }
 function current() { return FUNDS.find((f) => f.id === state.fundId); }
 
 function sipFacts(p) {
-  const invested = p.monthly * p.months;
+  const invested = p.invested;
   const change = p.value - invested;
   return { invested, change, pct: invested ? (change / invested) * 100 : 0 };
 }
 
-/** Next instalment on the SIP day, from tomorrow onwards. */
+/** Next instalment on the SIP day, from tomorrow onwards; a skipped instalment moves it a month. */
 function nextDue(f) {
   const t = today();
   const d = new Date(t.getFullYear(), t.getMonth(), f.sipDay);
   if (d <= t) d.setMonth(d.getMonth() + 1);
+  if (state.skipped.has(f.id)) d.setMonth(d.getMonth() + 1);
   return d;
 }
 
@@ -77,43 +104,146 @@ function holidayNote(d) {
     : `NAV date will be ${fmt(nav)} as ${fmt(d)} is a holiday`;
 }
 
+/* ---------- Facts the check-in may quote. Every number in a reply must come from here. ---------- */
+
+function normalRange(f) {
+  const cat = CATEGORY[f.category];
+  const age = [18, 12, 6].find((a) => f.months >= a) || 6;
+  const [redShare, lo, hi] = cat.ages[age];
+  return { label: cat.label, age, redShare, lo, hi };
+}
+
+function unitsLine(f) {
+  const [oldest, , latest] = f.navs;
+  const uOld = f.monthly / oldest, uNew = f.monthly / latest;
+  const more = uNew > uOld;
+  return {
+    text: `Your latest ${inr(f.monthly)} instalment bought ${uNew.toFixed(2)} units at ₹${latest.toFixed(2)} a unit. `
+      + `Two months ago the same amount bought ${uOld.toFixed(2)} units at ₹${oldest.toFixed(2)}.`
+      + (more ? " Lower prices meant more units for the same money." : " Higher prices meant fewer units."),
+  };
+}
+
+function factPack(f) {
+  const x = sipFacts(f), r = normalRange(f), u = unitsLine(f);
+  const where = x.pct < r.lo ? "lower than" : x.pct > r.hi ? "higher than" : "within";
+  const so = `You have put in ${inr(x.invested)} over ${f.months} months. It is worth ${inr(f.value)} today (${pctStr(x.pct)}).`;
+  const range = `SIPs in ${r.label} often move up and down in the first year or two. `
+    + `At ${f.months} months, your ${pctStr(x.pct)} is ${where} the usual range for these funds.`;
+  return { so, range, units: u.text, x, r };
+}
+
+/* ---------- Reason -> reply (rules preview; the model call replaces this step) ---------- */
+
+/* Order matters: the first matching intent wins, so specific asks come before broad worries. */
+const INTENTS = [
+  ["advice", /which fund|should i buy|best fund|recommend|suggest (a |some )?fund|kahan invest|kaunsa fund|better fund/],
+  ["fomo", /fomo|urgent|don'?t miss|everyone is (buying|selling)|sab log/],
+  ["decide", /should i (stop|continue|cancel|keep|exit)|stop or continue|continue or stop|band karu|band kar doon/],
+  ["withdraw", /withdraw|redeem|take (my |the )?money out|get my money|paisa nikal|sell (my )?units/],
+  ["stop_effect", /what happens if|if i (stop|cancel)|restart|start again|later when|will i lose/],
+  ["reduce", /reduce|lower (the |my )?amount|smaller amount|less amount|decrease|amount kam|kam karna/],
+  ["skip", /\bskip|\bpause|break for|one month off/],
+  ["date", /\bdate\b|salary (comes|credited|is late)|debit day|tareekh/],
+  ["lockin", /lock[- ]?in|\belss\b|teen saal/],
+  ["cash", /need (the )?money|emergency|paisa chahiye|\bloan\b|\bemi\b|expense|\bjob\b|laid off|\brent\b|\bbills?\b|wedding|medical|tight|afford/],
+  ["flat", /\bflat\b|no returns?|not seeing (any )?returns?|returns? (are|is) (bad|low|poor|less|nothing|zero)|not growing|same value|kuch nahi badh|too slow|waiting|too long/],
+  ["move", /\bfd\b|\brd\b|fixed deposit|\bgold\b|jewell|lump ?sum|band karke/],
+  ["risk", /risky|\brisk\b|\bsafe\b|volatile|dangerous/],
+  ["fall", /\bfall|\bfell\b|crash|\bred\b|\bloss|\blosing\b|\bdown\b|negative|minus|\bgir(a|e|i|ta|te)\b|doob|ghat/],
+  ["fund", /this fund|the fund|fund (is )?(bad|wrong|good)|wrong fund|galat fund/],
+];
+
 function classify(text) {
   const t = text.toLowerCase();
-  if (/which fund|should i buy|best fund|recommend|kahan invest|kaunsa fund/.test(t)) return "advice";
-  if (/fear|fomo|urgent|don't miss|everyone is buying|sab log/.test(t)) return "fomo";
-  if (/lock|elss|3 year|teen saal/.test(t)) return "lockin";
-  if (/fail|bounce|mandate|autopay|debit|nahi kata|balance/.test(t)) return "payment";
-  if (/fd|rd|gold|jewell|lump\s?sum|band karke/.test(t)) return "switch";
-  if (/red|loss|gir|negative|xirr|return/.test(t)) return "returns";
-  return "unsure";
+  const hit = INTENTS.find(([, re]) => re.test(t));
+  return hit ? hit[0] : "unsure";
 }
 
-function reply(kind, p, f) {
-  const sign = f.change >= 0 ? "+" : "−";
-  const facts = `You have put in ${inr(f.invested)} over ${p.months} months. It is worth ${inr(p.value)} today (${sign}${inr(Math.abs(f.change))}, ${f.pct.toFixed(1)}%).`;
-  const options = "You can continue, reduce the amount, skip one month, change the debit date, or stop. Stopping stays your choice.";
-  const base = {
-    advice: { ok: false, title: "This asks for a fund recommendation", body: "This check-in doesn't suggest funds or say what to buy. It only explains your own SIP. Ask about your SIP, not which fund to pick.", source: null },
-    fomo: { ok: false, title: "This asks for a fear or urgency nudge", body: "This check-in doesn't use fear, FOMO or urgency. It explains your own SIP and lists the options, including stopping.", source: null },
-    lockin: { ok: true, title: "This is about a lock-in rule", body: facts + " In an ELSS (tax-saving) fund, each instalment is locked for 3 years from the date it was invested, not from the day you started. A stop ends future instalments; money already invested stays locked until each instalment's own date.", source: "AMFI investor education · scheme information document" },
-    payment: { ok: true, title: "This is about a failed instalment", body: facts + " An instalment usually fails for one of three reasons: the account was short on the debit date, the autopay is still on an old account, or the bank or gateway rejected it. The app should name which one and offer pay-now or update-account. Nothing here can see your bank.", source: "NPCI e-mandate guidance" },
-    switch: { ok: true, title: "This is about moving the money elsewhere", body: facts + " Moving new savings to an FD, RD or gold scheme means the SIP stops counting as active, even though you are still saving. Reducing the SIP keeps it active at an amount you can afford.", source: "AMFI investor education · SIP basics" },
-    returns: { ok: true, title: "This is about returns looking red", body: facts + " A SIP buys units every month. When the value is below what you put in, the recent units were bought at lower prices. Whether that is a problem depends on when you need the money, not on the colour on the dashboard. This screen cannot say what happens next.", source: "AMFI investor education · rupee cost averaging" },
-    unsure: { ok: true, title: "Not sure what to do", body: facts + " The dashboard shows a gain or loss. It doesn't show whether that is normal for how long you have been investing or for when you need the money. " + options, source: "AMFI investor education · SIP basics" },
+/** One reply per concern. Each answers that concern only; the SIP numbers are already on the card above. */
+function reply(kind, f) {
+  const k = factPack(f), due = fmt(nextDue(f), true), value = inr(f.value);
+  const avgMonths = Math.floor((f.months + 1) / 2);
+  const cancelEffect = `Cancelling stops the ${due} instalment and every one after it. Your ${value} stays invested; nothing is sold.`;
+  const replies = {
+    advice: { ok: false, title: "I can't suggest funds",
+      body: "This check-in doesn't say which fund to pick or buy. It only explains your own SIP and the options on this screen." },
+    fomo: { ok: false, title: "No pressure here",
+      body: "This check-in doesn't use fear or urgency. Cancelling is always available below." },
+    decide: { ok: true, title: "That's your call", options: ["amount", "skip", "date"],
+      body: `This screen won't tell you to stop or continue. ${cancelEffect} Lowering the amount or skipping a month keeps the SIP running.` },
+    fall: { ok: true, title: "Lower prices, more units", options: ["amount", "skip"], body: k.units },
+    flat: { ok: true, title: "Why early SIP returns look small", options: ["amount"],
+      body: `Your money has been invested for about ${avgMonths} months on average, not ${f.months}: each instalment only starts from its own date. The newest instalments have had little time to change.` },
+    cash: { ok: true, title: "Cancelling doesn't give you this money", options: ["skip", "amount", "date"],
+      body: `Cancelling only stops future instalments. Your ${value} stays invested until you withdraw it, which is a separate step. If money is tight for a while, skipping a month or lowering the amount frees up cash without ending the SIP.` },
+    move: { ok: true, title: "Saving in an FD, RD or gold instead", options: ["amount"],
+      body: `That is still saving, and it's your choice. ${cancelEffect} If you'd like to keep some money here as well, you can lower the amount instead.` },
+    lockin: { ok: true, title: "The lock-in rule", options: [],
+      body: "In an ELSS fund each instalment is locked for 3 years from its own date, not from the day you started. Cancelling stops future instalments; money already invested stays locked until each instalment's date." },
+    fund: { ok: true, title: "This screen can't judge the fund", options: [],
+      body: "Whether a fund suits you depends on your goal and how much ups and downs you can live with. The fund page shows what it invests in and its riskometer; a SEBI-registered adviser can review the choice with you." },
+    risk: { ok: true, title: "How much this fund can move", options: [],
+      body: "The riskometer on the fund page shows this fund's risk level. Whether that level suits you depends on when you will need the money." },
+    withdraw: { ok: true, title: "Taking money out is a separate step", options: [],
+      body: "Cancelling doesn't pay anything out. To take money out, redeem units from the fund page; the money usually reaches your bank in a few working days. The fund page shows any exit load." },
+    stop_effect: { ok: true, title: "What cancelling changes", options: [],
+      body: `${cancelEffect} You can start a new SIP later whenever you choose.` },
+    reduce: { ok: true, title: "You can lower the amount", options: ["amount"],
+      body: `Pick a smaller monthly amount below. The SIP stays active and the ${due} instalment uses the new amount.` },
+    skip: { ok: true, title: "You can skip one month", options: ["skip"],
+      body: `No money is taken on ${due}. The SIP continues the month after.` },
+    date: { ok: true, title: "You can move the debit date", options: ["date"],
+      body: "If your salary or other money arrives later in the month, pick a date after it. The SIP keeps running on the new date." },
+    unsure: { ok: true, title: "I couldn't tell what's worrying you", options: ["amount", "skip", "date"],
+      body: `Try a reason above, or ask about skipping, lowering the amount, withdrawing or what cancelling changes. ${cancelEffect}` },
   };
-  const r = { ...base[kind] };
-  if (r.ok && kind !== "unsure") r.body += " " + options;
-  return r;
+  return { kind, ...replies[kind] };
 }
+
+/** The quality gate: numbers must match the fact pack; no advice, fund names or urgency. */
+const BLOCKED = /\b(buy|switch to|invest in|best fund|recommend|hurry|last chance|don'?t miss|everyone is|guarantee)/i;
+function numbersIn(s) { return s.match(/₹[\d,]+(?:\.\d+)?|[+−-]?\d+(?:\.\d+)?%|\d+\.\d{2} units/g) || []; }
+
+function gate(r, f) {
+  if (!r.ok) return { ...r, check: "declined" };
+  const k = factPack(f);
+  const allowed = new Set(numbersIn([k.so, k.range, k.units, inr(f.monthly)].join(" ")));
+  const badNumber = numbersIn(r.body).find((n) => !allowed.has(n));
+  const otherFund = FUNDS.find((o) => o.id !== f.id && r.body.includes(o.scheme));
+  if (badNumber || otherFund || BLOCKED.test(r.body)) {
+    return { ...reply("stop_effect", f), check: "fallback",
+      why: badNumber ? `a number (${badNumber}) did not match your SIP` : otherFund ? "it named another fund" : "it read like advice" };
+  }
+  return { ...r, check: r.kind === "unsure" ? "unsure" : "passed" };
+}
+
+/* ---------- Event log for testing (mentor view only) ---------- */
+
+function events() { try { return JSON.parse(localStorage.getItem(EVENTS_KEY)) || []; } catch { return []; } }
+function logEvent(type, extra = {}) {
+  const all = events();
+  all.push({ type, fund: state.fundId, reason: state.reason, at: new Date().toISOString(), ...extra });
+  localStorage.setItem(EVENTS_KEY, JSON.stringify(all));
+}
+function eventSummary() {
+  const e = events(), n = (t) => e.filter((x) => x.type === t).length;
+  const intents = n("cancel_tap"), cancelled = n("cancelled");
+  const changed = n("amount_lowered") + n("date_changed") + n("skipped");
+  return { intents, cancelled, changed, kept: n("kept") };
+}
+
+/* ---------- Screens ---------- */
 
 function renderControls() {
+  const s = eventSummary();
   const btn = (action, label) =>
     `<button data-action="${action}" class="text-xs font-semibold px-3 py-1.5 rounded-full border bg-white text-neutral-800 border-neutral-300">${label}</button>`;
   $("controls").innerHTML = [
     btn("tab:Dashboard", "Open Dashboard"),
     btn("tab:SIPs", "Open SIPs"),
-    btn("reset", "Restore cancelled SIPs"),
-  ].join("");
+    btn("reset", "Reset demo"),
+  ].join("") + `<p class="w-full text-[11px] text-neutral-600 mt-1">Test log · cancel taps ${s.intents} · changed instead ${s.changed} · kept ${s.kept} · cancelled ${s.cancelled}</p>`;
 }
 
 function header() {
@@ -207,7 +337,7 @@ function sipDetails() {
   const step = (dot, title, date, extra = "") => `<li class="relative pl-7 pb-6">
       <span class="absolute left-0 top-1 w-3 h-3 rounded-full ${dot}"></span>
       <p class="text-[14px]">${title}</p><p class="text-[12px] text-white/50 mt-1">${date}</p>${extra}</li>`;
-  return `<section class="px-4 pt-5 pb-28 min-h-full">
+  return `${toast()}<section class="px-4 pt-5 pb-28 min-h-full">
     <div class="flex items-center justify-between">
       <button data-action="back-tab" class="flex items-center gap-3 text-[17px]"><span class="text-xl">←</span> SIP Details</button>
       <button data-action="cancel-sip" class="text-[13px] font-semibold tracking-wide text-white/70">CANCEL SIP</button>
@@ -232,78 +362,97 @@ function sipDetails() {
   </section>`;
 }
 
-function checkin() {
-  const p = current();
-  return `<section class="px-4 pt-5">
-    <button data-action="back-details" class="text-white/60 text-sm">← SIP Details</button>
-    <h2 class="text-xl font-semibold mt-3">Check my SIP</h2>
-    <p class="text-sm text-white/60 mt-1">${p.scheme}</p>
-    <p class="text-[11px] text-white/40 mt-3">This is not investment advice. It explains your own SIP and lists options. It never names a fund to buy.</p>
-    <textarea id="worry" rows="4" placeholder="What's on your mind? English or Hinglish."
-      class="mt-4 w-full bg-white/5 border border-white/10 rounded-xl p-3 text-sm outline-none focus:border-groww">${state.draft}</textarea>
-    <button data-action="ask" class="mt-3 w-full bg-groww text-black font-semibold rounded-full py-3 text-sm">Check my SIP</button>
-    ${state.answer ? answerCard(state.answer) : ""}
-  </section>`;
-}
+/* ---------- The "before you cancel" sheet ---------- */
 
 function answerCard(a) {
-  const badge = a.ok ? "No advice · Numbers verified" + (a.source ? " · " + a.source : "") : "Declined";
-  return `<article class="mt-4 rounded-2xl border ${a.ok ? "border-groww/40" : "border-red-400/40"} p-4">
-    <p class="text-[11px] ${a.ok ? "text-groww" : "text-red-300"}">${badge}</p>
-    <h3 class="font-semibold mt-1">${a.title}</h3>
-    <p class="text-sm text-white/80 mt-2 leading-relaxed">${a.body}</p>
-    <p class="text-[11px] text-white/40 mt-3">Rules-based preview. The model call is the next step; the number and advice checks stay.</p>
+  const badge = a.check === "declined" ? "Declined"
+    : a.check === "fallback" ? `Fallback shown: the reply failed a check (${a.why})`
+    : a.check === "unsure" ? "Not sure what you meant · showing the basics"
+    : "Checked: numbers match your SIP · no advice";
+  const tone = a.check === "declined" ? "border-white/20" : "border-groww/40";
+  return `<article class="mt-3 rounded-2xl border ${tone} p-4">
+    <p class="text-[11px] ${a.check === "passed" ? "text-groww" : "text-white/60"}">${badge}</p>
+    <h3 class="font-semibold mt-1 text-[15px]">${a.title}</h3>
+    <p class="text-[13px] text-white/80 mt-2 leading-relaxed">${a.body}</p>
   </article>`;
 }
 
-function pastReturn(f) {
-  const r = f.returns[state.years];
-  const picker = `<select data-action="years" aria-label="Return period"
-      class="bg-white/10 border border-white/20 rounded-md text-[13px] px-1.5 py-0.5 outline-none">
-      ${[5, 3].map((y) => `<option value="${y}" ${state.years === y ? "selected" : ""}>${y} years</option>`).join("")}
-    </select>`;
-  const value = r == null
-    ? `<span class="text-white/60 text-[13px]">Not available: fund is under ${state.years} years old</span>`
-    : `<span class="font-semibold">${r.toFixed(1)}%</span><span class="text-white/60 text-[13px]">over</span>`;
-  return `<div class="py-3 border-b border-white/10">
-      <p class="text-[12px] text-white/60">Past return of this fund</p>
-      <div class="flex items-center gap-2 mt-1 flex-wrap">${value}${picker}</div>
-    </div>`;
+function optionsBlock(f) {
+  const amounts = [100, 250, 500, 1000, 1500].filter((a) => a < f.monthly);
+  const row = (id, title, sub) => `<button data-action="option:${id}" class="w-full text-left py-3 flex justify-between items-center">
+      <span><span class="block text-[14px]">${title}</span><span class="block text-[12px] text-white/50 mt-0.5">${sub}</span></span>
+      <span class="text-white/40">${state.option === id ? "⌃" : "›"}</span></button>`;
+  const panel = (id, inner) => (state.option === id ? `<div class="pb-3">${inner}</div>` : "");
+  const save = (action, label) => `<button data-action="${action}" class="mt-2 w-full border border-groww text-groww font-semibold rounded-full py-2 text-[13px]">${label}</button>`;
+  const due = nextDue(f);
+  const blocks = {
+    amount: row("amount", "Lower the amount", "Keeps the SIP active")
+      + panel("amount", `<select data-action="pick-amount" class="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-[14px]">
+          ${amounts.map((a) => `<option value="${a}" ${state.pickAmount === a ? "selected" : ""}>${inr(a)} / month</option>`).join("")}
+        </select>${save("save-amount", "Save new amount")}`),
+    date: row("date", "Change the debit date", "If the timing is the problem")
+      + panel("date", `<select data-action="pick-day" class="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-[14px]">
+          ${Array.from({ length: 28 }, (_, i) => i + 1).map((d) => `<option value="${d}" ${(state.pickDay || f.sipDay) === d ? "selected" : ""}>${ordinal(d)} of every month</option>`).join("")}
+        </select>${save("save-date", "Save new date")}`),
+    skip: row("skip", "Skip the next instalment", `Only ${fmt(due, true)}; the SIP continues after that`)
+      + panel("skip", `<p class="text-[12px] text-white/60">No money is taken on ${fmt(due, true)}. The following instalment runs as usual.</p>${save("save-skip", "Skip this instalment")}`),
+  };
+  const show = (state.answer?.options ?? ["amount", "date", "skip"]).filter((id) => id !== "amount" || amounts.length);
+  if (!show.length) return "";
+  return `<div class="mt-4">
+    <p class="text-[13px] font-semibold">Other options</p>
+    <div class="divide-y divide-white/10">${show.map((id) => blocks[id]).join("")}</div>
+  </div>`;
 }
 
 function fundSheet() {
   if (!state.sheet) return "";
-  const f = current();
-  const line = (k, v) => `<div class="py-3 border-b border-white/10">
-      <p class="text-[12px] text-white/60">${k}</p><p class="font-semibold mt-1">${v}</p></div>`;
+  const f = current(), k = factPack(f);
+  const chips = REASONS.filter((r) => !r.elssOnly || f.elss).map((r) =>
+    `<button data-action="reason:${r.id}" class="px-3 py-1.5 rounded-full border text-[12px] ${
+      state.reason === r.id ? "border-groww text-groww bg-groww/10" : "border-white/20 text-white/80"}">${r.label}</button>`).join("");
   return `<div class="fixed inset-0 z-[60] max-w-[430px] mx-auto">
-    <button data-action="close-sheet" class="absolute inset-0 bg-black/60" aria-label="Close"></button>
-    <div class="absolute bottom-0 w-full bg-[#16161c] rounded-t-3xl px-5 pt-3 pb-8 max-h-[88vh] overflow-y-auto">
-      <div class="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4"></div>
-      <div class="flex gap-3 items-start">${logo(f)}<div>
-        <h2 class="text-[16px] font-semibold leading-snug">${f.scheme}</h2>
-        <p class="text-[12px] text-white/50 mt-1">Your SIP: ${inr(f.monthly)}/month · ${f.months} instalments paid</p></div></div>
-      <div class="mt-3">
-        ${pastReturn(f)}
-        ${line("People invested in this fund", f.investors)}
-        ${line("Active monthly SIPs", f.activeSips)}
-        ${line("Average SIP of active users", inr(f.avgSip) + " / month")}
-        ${line("Minimum horizon", "3 years to see the returns")}
+    <button data-action="keep" class="absolute inset-0 bg-black/60" aria-label="Close"></button>
+    <div class="absolute bottom-0 w-full bg-[#16161c] rounded-t-3xl max-h-[90vh] flex flex-col">
+      <div class="overflow-y-auto px-5 pt-3 pb-4">
+        <div class="w-10 h-1 rounded-full bg-white/20 mx-auto mb-4"></div>
+        <h2 class="text-[18px] font-semibold">Before you cancel</h2>
+        <div class="flex gap-3 items-start mt-3">${logo(f, "w-8 h-8")}<p class="text-[13px] text-white/70 leading-snug">${f.scheme}</p></div>
+
+        <div class="mt-4 rounded-2xl bg-white/[0.04] border border-white/10 p-4">
+          <p class="text-[12px] text-white/50">Your SIP so far</p>
+          <div class="grid grid-cols-3 gap-2 mt-2 text-[13px]">
+            <div><p class="text-white/50 text-[11px]">Invested</p><p class="font-semibold">${inr(k.x.invested)}</p></div>
+            <div><p class="text-white/50 text-[11px]">Worth today</p><p class="font-semibold">${inr(f.value)}</p></div>
+            <div><p class="text-white/50 text-[11px]">Change</p><p class="font-semibold">${pctStr(k.x.pct)}</p></div>
+          </div>
+          <p class="text-[12px] text-white/50 mt-3">Is this normal at ${f.months} months?</p>
+          <p class="text-[13px] text-white/80 mt-1 leading-relaxed">${k.range}</p>
+        </div>
+
+        <p class="mt-5 text-[13px] font-semibold">What's making you cancel? <span class="font-normal text-white/50">Optional</span></p>
+        <div class="flex flex-wrap gap-2 mt-2">${chips}</div>
+        <div class="mt-3 flex gap-2">
+          <input id="worry" value="${state.draft.replace(/"/g, "&quot;")}" placeholder="Or say it in your words (English or Hinglish)"
+            class="flex-1 bg-white/5 border border-white/10 rounded-full px-3 py-2 text-[13px] outline-none focus:border-groww" />
+          <button data-action="ask" class="px-3 rounded-full bg-white/10 text-[13px]">Explain</button>
+        </div>
+        ${state.answer ? answerCard(state.answer) : ""}
+
+        ${optionsBlock(f)}
+
+        <p class="text-[11px] text-white/50 mt-4">Information about your own SIP, not investment advice. Past ranges don't predict future returns. Sample figures, not live Groww data.</p>
       </div>
-      <p class="text-[11px] text-amber-200/80 mt-3">Sample figures for this prototype. They are not live Groww data.</p>
-      <p class="text-[12px] text-white/70 mt-2">Past returns don't guarantee future returns. Mutual fund investments are subject to market risk. This is not investment advice.</p>
-      <div class="mt-5 grid grid-cols-2 gap-3">
-        <button data-action="close-sheet" class="border border-white/30 font-semibold rounded-full py-3 text-sm">Keep SIP</button>
+      <div class="grid grid-cols-2 gap-3 px-5 pt-3 pb-6 border-t border-white/10 bg-[#16161c]">
+        <button data-action="keep" class="border border-white/30 font-semibold rounded-full py-3 text-sm">Keep SIP</button>
         <button data-action="confirm-cancel" class="border border-white/30 font-semibold rounded-full py-3 text-sm">Cancel SIP</button>
       </div>
-      <button data-action="open-checkin" class="mt-4 w-full text-center text-[13px] text-groww">Not sure? Check my SIP</button>
     </div>
   </div>`;
 }
 
 function screen() {
   if (state.screen === "details") return sipDetails();
-  if (state.screen === "checkin") return checkin();
   if (state.tab === "Dashboard") return dashboard();
   if (state.tab === "SIPs") return sipsList();
   return placeholder(state.tab);
@@ -318,40 +467,86 @@ function render() {
     .join("");
 }
 
+function closeSheet(toastText) {
+  state.sheet = false;
+  state.option = null;
+  state.toast = toastText || "";
+}
+
 document.body.addEventListener("click", (e) => {
   const b = e.target.closest("[data-action]");
-  if (!b || b.tagName === "SELECT") return;
+  if (!b || b.tagName === "SELECT" || b.tagName === "INPUT") return;
   const [action, arg] = b.dataset.action.split(":");
-  if (action !== "ask") state.toast = "";
+  const f = current();
+  if (!["ask", "reason", "option"].includes(action)) state.toast = "";
+
   if (action === "tab") { state.tab = arg; state.screen = "tab"; state.sheet = false; }
-  if (action === "open-sip") { state.fundId = arg; state.screen = "details"; state.answer = null; state.draft = ""; }
+  if (action === "open-sip") { state.fundId = arg; state.screen = "details"; }
   if (action === "back-tab") state.screen = "tab";
-  if (action === "cancel-sip") { state.sheet = true; state.years = 5; }
-  if (action === "close-sheet") state.sheet = false;
+  if (action === "cancel-sip") {
+    Object.assign(state, { sheet: true, reason: null, draft: "", answer: null, option: null, pickAmount: null, pickDay: null });
+    logEvent("cancel_tap");
+  }
+  if (action === "reason") {
+    state.reason = arg;
+    state.answer = gate(reply(arg, f), f);
+    logEvent("reason_chosen", { check: state.answer.check });
+  }
+  if (action === "ask" && state.draft.trim()) {
+    const kind = classify(state.draft);
+    state.reason = REASONS.some((r) => r.id === kind) ? kind : null;
+    state.answer = gate(reply(kind, f), f);
+    logEvent("free_text", { kind, check: state.answer.check });
+  }
+  if (action === "option") state.option = state.option === arg ? null : arg;
+  if (action === "save-amount") {
+    const amt = state.pickAmount || [100, 250, 500, 1000, 1500].filter((a) => a < f.monthly)[0];
+    logEvent("amount_lowered", { from: f.monthly, to: amt });
+    f.monthly = amt;
+    closeSheet(`SIP amount changed to ${inr(amt)} a month. Your SIP stays active.`);
+  }
+  if (action === "save-date") {
+    const day = state.pickDay || f.sipDay;
+    logEvent("date_changed", { from: f.sipDay, to: day });
+    f.sipDay = day;
+    closeSheet(`Debit date changed to the ${ordinal(day)} of every month.`);
+  }
+  if (action === "save-skip") {
+    const due = nextDue(f);
+    state.skipped.add(f.id);
+    logEvent("skipped");
+    closeSheet(`The ${fmt(due, true)} instalment will be skipped. Your SIP continues after that.`);
+  }
+  if (action === "keep") { logEvent("kept"); closeSheet(); }
   if (action === "confirm-cancel") {
+    logEvent("cancelled");
     state.cancelled.add(state.fundId);
-    state.sheet = false;
+    closeSheet("SIP cancelled. Units you already hold stay invested.");
     state.screen = "tab";
     state.tab = "SIPs";
-    state.toast = "SIP cancelled. Units you already hold stay invested.";
   }
-  if (action === "open-checkin") { state.sheet = false; state.screen = "checkin"; }
-  if (action === "back-details") state.screen = "details";
-  if (action === "reset") { state.cancelled.clear(); state.screen = "tab"; state.sheet = false; }
-  if (action === "ask") {
-    state.draft = $("worry") ? $("worry").value : state.draft;
-    const p = current();
-    state.answer = reply(classify(state.draft), p, sipFacts(p));
+  if (action === "reset") {
+    state.cancelled.clear();
+    state.skipped.clear();
+    FUNDS.forEach((x, i) => Object.assign(x, ORIGINAL[i]));
+    localStorage.removeItem(EVENTS_KEY);
+    closeSheet();
+    state.screen = "tab";
   }
   render();
-  const box = $("worry");
-  if (box) box.value = state.draft;
+});
+
+document.body.addEventListener("input", (e) => {
+  if (e.target.id === "worry") state.draft = e.target.value;
+});
+
+document.body.addEventListener("keydown", (e) => {
+  if (e.target.id === "worry" && e.key === "Enter") document.querySelector('[data-action="ask"]').click();
 });
 
 document.body.addEventListener("change", (e) => {
-  if (e.target.dataset.action !== "years") return;
-  state.years = Number(e.target.value);
-  render();
+  if (e.target.dataset.action === "pick-amount") state.pickAmount = Number(e.target.value);
+  if (e.target.dataset.action === "pick-day") state.pickDay = Number(e.target.value);
 });
 
 render();
