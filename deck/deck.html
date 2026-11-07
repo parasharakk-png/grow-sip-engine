@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Groww SIP continuation · graduation project</title>
+<style>
+  @page { size: 1280px 720px; margin: 0; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: #e5e7eb; }
+  body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #1f2937; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .slide { width: 1280px; height: 720px; background: #fff; margin: 24px auto; position: relative; overflow: hidden;
+    padding: 34px 48px 40px; page-break-after: always; break-after: page; display: flex; flex-direction: column; }
+  @media print { body { background: #fff; } .slide { margin: 0; } }
+  .slide::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 8px; background: #00B386; }
+  .kicker { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: #6b7280; font-weight: 600; }
+  h1 { font-size: 27px; line-height: 1.22; margin: 6px 0 14px; color: #111827; font-weight: 700; max-width: 1120px; }
+  h2 { font-size: 14px; margin: 0 0 6px; color: #0072B2; text-transform: uppercase; letter-spacing: .05em; }
+  h3 { font-size: 15px; margin: 0 0 4px; color: #111827; }
+  p, li, td, th { font-size: 13.5px; line-height: 1.42; }
+  p { margin: 0 0 8px; }
+  ul { margin: 0; padding-left: 18px; }
+  li { margin-bottom: 5px; }
+  b, strong { color: #111827; }
+  a { color: #0072B2; }
+  .muted { color: #6b7280; }
+  .small, .small p, .small li, .small td, .small th { font-size: 12px; }
+  .tiny { font-size: 11px; color: #6b7280; }
+  .grid { display: grid; gap: 18px; }
+  .card { border: 1px solid #e5e7eb; border-radius: 10px; padding: 12px 14px; background: #fff; }
+  .card.soft { background: #f8fafc; }
+  .card.blue { border-color: #0072B2; background: #eef6fb; }
+  .card.orange { border-color: #E69F00; background: #fff8eb; }
+  .num { font-size: 30px; font-weight: 700; color: #111827; line-height: 1.05; }
+  .num small { font-size: 13px; font-weight: 600; color: #6b7280; }
+  table { border-collapse: collapse; width: 100%; }
+  th { text-align: left; color: #6b7280; font-weight: 600; border-bottom: 1px solid #d1d5db; padding: 4px 8px 4px 0; }
+  td { border-bottom: 1px solid #eef0f3; padding: 5px 8px 5px 0; vertical-align: top; }
+  .foot { position: absolute; left: 48px; right: 48px; bottom: 14px; display: flex; justify-content: space-between; font-size: 10.5px; color: #9ca3af; }
+  .quote { border-left: 3px solid #E69F00; padding: 2px 0 2px 10px; font-style: italic; color: #374151; }
+  .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid; margin-right: 4px; }
+  .tag.focus { color: #0072B2; border-color: #0072B2; background: #eef6fb; }
+  .tag.ops { color: #9a6700; border-color: #E69F00; background: #fff8eb; }
+  .bar { height: 20px; border-radius: 4px; display: flex; align-items: center; padding-left: 8px; font-size: 12px; font-weight: 700; color: #fff; }
+  .flow { display: flex; align-items: stretch; gap: 0; }
+  .flow .step { flex: 1; border: 1px solid #d1d5db; border-radius: 8px; padding: 8px 10px; background: #f8fafc; }
+  .flow .arrow { width: 22px; display: flex; align-items: center; justify-content: center; color: #9ca3af; font-size: 18px; }
+  .todo { background: #fff4cc; border: 1.5px dashed #E69F00; border-radius: 6px; padding: 2px 6px; color: #6b4e00; }
+  .phone { border-radius: 18px; border: 5px solid #111; overflow: hidden; background: #111; }
+  .phone img { display: block; width: 100%; margin-top: -20%; }
+  .s1 p { font-size: 14.5px; }
+  .check { color: #0072B2; font-weight: 700; }
+</style>
+</head>
+<body>
+
+<!-- 1 · Title and summary -->
+<section class="slide">
+  <div class="kicker">Groww · Growth team · Graduation project</div>
+  <h1 style="font-size:33px;margin-top:14px;max-width:1080px">First-time investors don't have a way to judge their own SIP. So when it looks red, they go with someone else's opinion and stop.</h1>
+  <p style="font-size:16px;max-width:1000px" class="muted">Goal: raise the share of first-time mutual fund investors who still have an active SIP 12 months after their first one. Active means at least one successful instalment in the last 30 days.</p>
+
+  <div class="grid s1" style="grid-template-columns:1fr 1fr 1fr;margin-top:18px">
+    <div class="card soft">
+      <h2>What I looked at</h2>
+      <p><b>1,917 public posts</b> about SIPs from Play Store, App Store, Reddit, TradingQ&amp;A and YouTube. 526 of them are from people in their first 12 months.</p>
+      <p><b>9 screener responses</b> and <b>5 interviews</b> with first-time investors, 8 to 15 months in.</p>
+    </div>
+    <div class="card soft">
+      <h2>What I found</h2>
+      <p>In all 5 interviews the SIP was at risk because of a <b>decision to stop</b>, not a failed payment.</p>
+      <p>4 of 5 judged their SIP only by red or green, against a return they expected in one year. Most of them knew only two choices: keep going or stop.</p>
+    </div>
+    <div class="card soft">
+      <h2>What I built</h2>
+      <p>A <b>"Before you cancel"</b> sheet in the SIP cancel flow. It shows the investor their own numbers, reads their worry in their own words, and offers smaller changes: lower the amount, skip a month, move the date.</p>
+      <p>The AI reply is checked before it's shown. Cancel is still one tap.</p>
+    </div>
+  </div>
+
+  <div class="card blue" style="margin-top:18px">
+    <h2>Links (all open to anyone)</h2>
+    <table class="small" style="margin-top:2px">
+      <tr><td style="width:190px"><b>AI discovery engine</b></td><td><a href="https://groww-sip-discovery-engine-ve6n6mkspofse9xbwkzrsh.streamlit.app">groww-sip-discovery-engine…streamlit.app</a></td>
+          <td style="width:170px"><b>AI Evidence Log</b></td><td><a href="https://github.com/parasharakk-png/groww-sip-discovery-engine/blob/main/evidence-log/AI_Evidence_Log.md">Evidence Log</a> · <a href="https://github.com/parasharakk-png/groww-sip-discovery-engine/blob/main/evidence-log/golden_set_review.md">golden set (20 posts)</a></td></tr>
+      <tr><td><b>Live MVP (try it)</b></td><td><span class="todo">[paste Vercel link]</span></td>
+          <td><b>User research</b></td><td><a href="https://github.com/parasharakk-png/groww-sip-discovery-engine/tree/main/user-research">screener, guide, P1–P5 notes, scorecard</a></td></tr>
+      <tr><td><b>MVP code and eval</b></td><td><a href="https://github.com/parasharakk-png/groww-sip-mvp">github.com/parasharakk-png/groww-sip-mvp</a></td>
+          <td><b>Problem definition</b></td><td><a href="https://github.com/parasharakk-png/groww-sip-discovery-engine/blob/main/user-research/05_problem_definition.md">full write-up</a></td></tr>
+    </table>
+  </div>
+  <div class="foot"><span>Not investment advice. Prototype uses sample figures, not live Groww data.</span><span>1 / 10</span></div>
+</section>
+
+<!-- 2 · Metric decomposition -->
+<section class="slide">
+  <div class="kicker">Part 2 · Breaking down the metric</div>
+  <h1>A first SIP can be lost in two ways, by a decision or by a failed payment, so I split the metric into five branches</h1>
+
+  <div class="card blue" style="padding:10px 14px;margin-bottom:12px">
+    <p style="margin:0"><b>% of first-time MF investors with an active SIP at month 12</b> &nbsp;=&nbsp; first SIP goes live &nbsp;×&nbsp; every instalment goes through (or is recovered within 30 days) &nbsp;×&nbsp; the investor keeps choosing to continue</p>
+  </div>
+
+  <table class="small">
+    <tr><th style="width:150px">Branch</th><th style="width:230px">Product outcome</th><th>User behaviours behind it</th><th style="width:200px">Leading indicator</th><th style="width:110px">Share of first-timer stop posts*</th></tr>
+    <tr><td><b>0 · Activation</b><br><span class="tag ops">ops track</span></td><td>The first SIP is set up and the first instalment succeeds</td><td>Finishes KYC and autopay; has balance on day one; learns why a first order was rejected</td><td>% of first SIPs whose first instalment succeeds</td><td><b>10%</b></td></tr>
+    <tr><td><b>A · Failed payment</b><br><span class="tag ops">ops track</span></td><td>Every instalment goes through, and a failure is fixed within 30 days</td><td>Keeps balance on the debit date; updates autopay after a bank or job change; notices a failed debit</td><td>Failed instalments recovered within 7 days</td><td><b>18%</b></td></tr>
+    <tr><td><b>B · Pause turns into stop</b><br><span class="tag focus">MVP focus</span></td><td>A cash squeeze ends in a skip or a smaller amount, not a cancel</td><td>Cancels instead of reducing; can't tell pause from stop; forgets to resume</td><td>Cancel attempts that end in skip or reduce</td><td><b>10%</b></td></tr>
+    <tr><td><b>C · Decides to stop</b><br><span class="tag focus">MVP focus</span></td><td>At the "should I stop?" moment the investor continues, adjusts, or restarts without a gap</td><td>Doubts after weak returns or a fall; asks others whether to stop; stops one SIP to start something else</td><td>Cancel attempts that end in continue or adjust</td><td><b>19%</b></td></tr>
+    <tr><td><b>D · Quiet confusion</b></td><td>The investor can tell whether the SIP is on track without outside help</td><td>Checks returns often; can't read XIRR, NAV or units; slowly stops caring</td><td>Returns-related support contacts</td><td><b>9%</b></td></tr>
+  </table>
+
+  <div class="grid" style="grid-template-columns:1fr 1fr 1fr;margin-top:12px">
+    <div class="card soft small"><h3>One failure is enough</h3><p>A single failed instalment in the measurement month makes the SIP inactive, even if the person never meant to stop.</p></div>
+    <div class="card soft small"><h3>Reducing is always a save</h3><p>A smaller instalment still counts as active. Skipping only hurts if the skipped month is the one being measured.</p></div>
+    <div class="card soft small"><h3>Recovery counts as much as prevention</h3><p>A lapsed SIP is active again after one successful instalment, so fixing a failure fast is worth as much as avoiding it.</p></div>
+  </div>
+  <div class="foot"><span>*Share of the 68 first-time investor posts about stopping, pausing or a failed SIP that the engine assigned to each branch. The rest had no clear cause.</span><span>2 / 10</span></div>
+</section>
+
+<!-- 3 · Discovery engine: how it works -->
+<section class="slide">
+  <div class="kicker">Part 1 · The AI discovery engine, how it works</div>
+  <h1>The engine reads 1,917 public posts, sizes each branch of the metric, and I checked its labels against 20 posts I tagged myself</h1>
+
+  <div class="flow small" style="margin-bottom:14px">
+    <div class="step"><b>4,546</b> posts pulled<br><span class="muted">Play Store 1,674 · TradingQ&amp;A 974 · Reddit 941 · YouTube 893 · App Store 64</span></div><div class="arrow">›</div>
+    <div class="step"><b>3,131</b> about SIPs or mutual funds<br><span class="muted">keyword rules</span></div><div class="arrow">›</div>
+    <div class="step"><b>2,209</b> own experience, duplicates removed<br><span class="muted">first-person rules</span></div><div class="arrow">›</div>
+    <div class="step"><b>1,917</b> confirmed by the LLM<br><span class="muted">292 rejected</span></div><div class="arrow">›</div>
+    <div class="step" style="border-color:#0072B2;background:#eef6fb"><b>526</b> first-time investors<br><span class="muted">first 12 months only</span></div>
+  </div>
+
+  <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
+    <div class="card">
+      <h2>Where the AI does the work</h2>
+      <ul>
+        <li>An LLM tags every post: investor stage, months since starting, SIP status, main concern, trigger, emotion, and a quote.</li>
+        <li>"Ask the engine" answers research questions from a numeric evidence pack and cites post IDs.</li>
+        <li>A guard runs first and turns away advice and support questions ("Which fund should I buy?", "OTP not coming").</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>Where I kept it rule-based</h2>
+      <ul>
+        <li>The cause list (10 causes) and the branch sizing are fixed text rules. Anyone can open the app and see why a post landed where it did.</li>
+        <li>Uplift estimates use stated assumptions: 40% of first SIPs lapse, 30% of a cause is recoverable. Groww's own cohort data would replace both.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h2>How I checked it</h2>
+      <ul>
+        <li><b>Golden set:</b> 20 hard posts I labelled by hand on 19 fields. The LLM matched me on "instalment failed" 86% of the time (keyword rules 57%) and on "stop caused by the fall" 83%.</li>
+        <li><b>Where it failed:</b> on <i>why</i> people stop it matched me only 33% of the time, so I don't use that label for sizing.</li>
+        <li><b>Quotes:</b> 1,886 of 1,917 AI-picked quotes appear word for word in the post.</li>
+        <li><b>Guard:</b> 58 of 58 test questions handled correctly.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="card soft small" style="margin-top:14px">
+    <h2>What a reviewer can open in the engine</h2>
+    <div class="grid" style="grid-template-columns:repeat(7,1fr);gap:10px">
+      <p><b>Overview</b><br>Sources, volume and the headline finding</p>
+      <p><b>Metric decomposition</b><br>The five branches, sized for first-timers</p>
+      <p><b>Problem validation</b><br>Payments vs stop decision, with the interview results</p>
+      <p><b>Ask the engine</b><br>Free questions, answered with post IDs, behind the guard</p>
+      <p><b>Opportunity sizing</b><br>Uplift per opportunity, with editable assumptions</p>
+      <p><b>How it works &amp; evidence</b><br>Pipeline, golden-set scores, AI corrections</p>
+      <p><b>Evidence explorer</b><br>Every post, filterable, with its labels and quote</p>
+    </div>
+  </div>
+  <p class="small" style="margin-top:10px">Try it: <a href="https://groww-sip-discovery-engine-ve6n6mkspofse9xbwkzrsh.streamlit.app">discovery engine on Streamlit</a> · Full detail, including where I overruled the AI: <a href="https://github.com/parasharakk-png/groww-sip-discovery-engine/blob/main/evidence-log/AI_Evidence_Log.md">AI Evidence Log</a></p>
+  <div class="foot"><span>LLM: MiniMax-M2.7 via an Anthropic-compatible gateway. Prompts are versioned and results cached so reruns are repeatable.</span><span>3 / 10</span></div>
+</section>
+
+<!-- 4 · Discovery findings -->
+<section class="slide">
+  <div class="kicker">Part 1 · What the engine found</div>
+  <h1>Posts alone couldn't pick the problem: first-timers wrote about failed payments and about deciding to stop almost equally</h1>
+
+  <div class="grid" style="grid-template-columns:420px 1fr">
+    <div>
+      <div class="card">
+        <h2>68 first-time investor posts about a SIP ending</h2>
+        <p class="small muted" style="margin-bottom:10px">Share of posts, and estimated uplift to the 12-month metric if the cause were fixed</p>
+        <p style="margin-bottom:3px"><b>Failed payment or SIP never went live</b> (branches 0 + A)</p>
+        <div class="bar" style="width:93%;background:#E69F00;color:#111">27.9% · about +2.9 pp</div>
+        <p style="margin:10px 0 3px"><b>Deciding to stop, or a pause that became a stop</b> (B + C)</p>
+        <div class="bar" style="width:98%;background:#0072B2">29.4% · about +2.3 pp</div>
+        <p class="tiny" style="margin-top:10px">Uplift = share of lapses × assumed 40% lapse rate × assumed 30% recoverable. The gap is too small to call with 68 posts.</p>
+        <p class="small" style="margin:12px 0 4px"><b>By branch</b> (same 68 posts)</p>
+        <table class="small">
+          <tr><td style="width:170px">C · Decides to stop</td><td><div class="bar" style="width:76%;background:#0072B2;height:16px">19.1%</div></td></tr>
+          <tr><td>A · Failed payment</td><td><div class="bar" style="width:70%;background:#E69F00;color:#111;height:16px">17.6%</div></td></tr>
+          <tr><td>0 · Activation</td><td><div class="bar" style="width:41%;background:#E69F00;color:#111;height:16px">10.3%</div></td></tr>
+          <tr><td>B · Pause turns into stop</td><td><div class="bar" style="width:41%;background:#0072B2;height:16px">10.3%</div></td></tr>
+          <tr><td>D · Quiet confusion</td><td><div class="bar" style="width:35%;background:#9ca3af;height:16px">8.8%</div></td></tr>
+        </table>
+      </div>
+      <div class="card orange" style="margin-top:12px">
+        <p style="margin:0"><b>So I took both into interviews</b>, with a rule I wrote down before the first call: keep the stop focus if 3 or more people describe a stop decision as the risky moment; switch to payments if 3 or more describe a failed instalment.</p>
+      </div>
+    </div>
+    <div>
+      <h2>Four things that changed my thinking</h2>
+      <table>
+        <tr><td style="width:28px"><b>1</b></td><td><b>A falling market doesn't separate stoppers from continuers.</b> Falls come up <i>more</i> often in posts from people who kept going. The fall is the trigger, not the reason.</td></tr>
+        <tr><td><b>2</b></td><td><b>Payment posts are mostly about not being told.</b> The biggest groups: a failure with no reason given (29 posts), money debited but no units (17), and a first SIP that never went live (12).</td></tr>
+        <tr><td><b>3</b></td><td><b>"Panic" was the wrong word.</b> Of 9 golden-set posts where someone stopped during a fall, only 4 were fear or a gap between what they expected and what they saw. The rest were timing the market, doubt about the fund, or needing cash.</td></tr>
+        <tr><td><b>4</b></td><td><b>The nudge I had in mind didn't fit.</b> I wanted to show "x% of investors in this fund are continuing". It fully fit 1 of 9 of those posts, so I dropped it.</td></tr>
+      </table>
+      <div class="card soft small" style="margin-top:10px">
+        <h3>Where I overruled the AI</h3>
+        <p style="margin:0">The LLM's single "trigger" label said <i>unknown or other</i> for 18% of stop posts, and its "why they stop" label matched me 33% of the time. I replaced it with fixed cause rules that are visible in the app. The Q&amp;A layer also answered "Should I stop my SIP?" and "Which fund should I buy?" when I tested it, so I added the guard.</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Shares are of public posts, not of Groww users. Source: discovery engine, metric decomposition and problem validation tabs.</span><span>4 / 10</span></div>
+</section>
+
+<!-- 5 · User research -->
+<section class="slide">
+  <div class="kicker">Part 3 · User research</div>
+  <h1>In all 5 interviews the SIP was at risk because of a decision to stop, not a failed payment</h1>
+
+  <div class="grid" style="grid-template-columns:330px 1fr">
+    <div>
+      <div class="card soft small">
+        <h2>How I ran it</h2>
+        <ul>
+          <li>A Google Form screener, 9 responses. I picked people aged 22–32, 8–15 months into their first SIP, whose SIP had been at risk.</li>
+          <li>Five 45-minute calls. I asked them to walk me through their SIP month by month, from why they started to today.</li>
+          <li>No PAN, account numbers or screenshots. Amounts only as ranges. People are P1–P5 everywhere.</li>
+          <li>The decision rule from the previous slide was written before the first call.</li>
+        </ul>
+      </div>
+      <div class="card orange small" style="margin-top:10px">
+        <p style="margin:0"><b>The screener pointed the other way on one thing.</b> All 6 respondents whose SIP had been disrupted had changed job or salary account, against 0 of the 3 who hadn't. So I kept failed payments as a parallel fix (slide 10).</p>
+      </div>
+    </div>
+    <div>
+      <table class="small">
+        <tr><th style="width:34px"></th><th style="width:62px">Month</th><th style="width:150px">Where they are now</th><th>What happened</th><th style="width:150px">Who settled it</th></tr>
+        <tr><td><b>P1</b></td><td>12</td><td>Still running</td><td>Red after a year. Thought of moving it to an RD</td><td>Office colleague: "just hold on"</td></tr>
+        <tr><td><b>P2</b></td><td>14</td><td>Stopped, money in FD / RD</td><td>Negative for months, had expected 10–12% in a year</td><td>Finance YouTubers</td></tr>
+        <tr><td><b>P3</b></td><td>8</td><td>Planning to stop</td><td>Still red after 6 months of averaging. Online research didn't help</td><td>Nobody. "Everything seems very vast"</td></tr>
+        <tr><td><b>P4</b></td><td>11</td><td>Stopped, lump sums instead</td><td>Found out in month 10 that each ELSS instalment is locked for 3 years</td><td>Cousin who got them started</td></tr>
+        <tr><td><b>P5</b></td><td>15</td><td>Halved, half to a gold scheme</td><td>Almost no profit after 15 months, against a one-year wedding goal</td><td>A friend, and a jeweller's offer</td></tr>
+      </table>
+
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+        <ul class="small">
+          <li><b>4 of 5</b> judged the SIP only by red or green, against a return they expected in about a year.</li>
+          <li><b>4 of 5</b> knew only two options: keep going or stop. Only P5 used the option to reduce.</li>
+          <li><b>3 of 5</b> still invest, just not in SIPs: FD / RD, lump sums, a gold scheme.</li>
+        </ul>
+        <ul class="small">
+          <li><b>2 of 5</b> had a failed instalment. Both found out only by opening the app, and neither stopped because of it.</li>
+          <li><b>1 of 5</b> cared what other investors were doing. A person they trusted mattered far more.</li>
+          <li><b>New:</b> P1 already asks an LLM what SIP terms like XIRR mean.</li>
+        </ul>
+      </div>
+      <div class="grid" style="grid-template-columns:1fr 1fr 1fr;gap:12px;margin-top:4px">
+        <p class="quote small">"Whenever I see my money in red, i feel like stopping the SIP and put the money in RD" · P1</p>
+        <p class="quote small">"I stopped my sip and left my investment money as it is because i was not sure what to do" · P2</p>
+        <p class="quote small">"everything seems very vast and not able to get any conclusions" · P3</p>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Five interviews from my network, picked because their SIP was at risk. They show what the moment looks like, not how common it is.</span><span>5 / 10</span></div>
+</section>
+
+<!-- 6 · Segment, root cause, problem -->
+<section class="slide">
+  <div class="kicker">Part 4 · Target segment, root cause and problem</div>
+  <h1>The root cause: they never had a yardstick of their own, so when the SIP looks red they borrow a verdict from someone they trust</h1>
+
+  <div class="card blue" style="margin-bottom:12px">
+    <p style="font-size:15.5px;margin:0"><b>Problem:</b> In their first year, first-time investors judge their SIP only by red or green, against a one-year expectation. With no way to tell what's normal, they ask someone they trust, and then stop, reduce, or move the money out of SIPs.</p>
+  </div>
+
+  <div class="grid" style="grid-template-columns:1fr 1fr 1fr 1fr;gap:12px">
+    <div class="card small"><h3>Who</h3><p>First-time SIP investors, 22–32, mostly salaried, ₹1k–10k a month. They started on someone else's word (a colleague, family, a YouTuber) and are 6–15 months in.</p></div>
+    <div class="card small"><h3>The moment</h3><p>The SIP has looked red or flat for months against what they expected after a year, and they open the app wondering whether to keep going.</p></div>
+    <div class="card small"><h3>Root cause</h3><p>They started with a borrowed goal and a one-year expectation. The app shows returns, not how they're doing against their own goal and time frame. So the decision gets borrowed too.</p></div>
+    <div class="card small"><h3>Workarounds today</h3><p>Ask the person who got them started, watch YouTubers, search articles, ask an LLM, or quietly move new money to FD / RD, lump sums or gold.</p></div>
+    <div class="card small"><h3>Outcome I want to move</h3><p>At the "should I stop?" moment, more people continue, reduce, skip or change the date instead of cancelling (branches B and C).</p></div>
+    <div class="card small"><h3>Why users care</h3><p>They decide with a real picture of their own SIP, at an amount they can afford. Stopping is still fine, as long as it's their own informed call.</p></div>
+    <div class="card small"><h3>Why Groww cares</h3><p>Money that stays in SIPs grows AUM and lifetime value. A reduced or skipped SIP still counts as active. 3 of 5 kept investing, just elsewhere.</p></div>
+    <div class="card small soft"><h3>What it is not</h3><p>Not "people panic when markets fall". The fall is the trigger. The missing yardstick is why the trigger works.</p></div>
+  </div>
+
+  <h2 style="margin-top:14px">How my thinking changed</h2>
+  <div class="flow small">
+    <div class="step"><b>Business metric</b><br>It looked like one number. It's really two ways to lose a SIP: a decision, or a failed payment.</div><div class="arrow">›</div>
+    <div class="step"><b>Product outcomes</b><br>Five branches. My own guess: SIPs end either by a failed payment or by a choice to stop.</div><div class="arrow">›</div>
+    <div class="step"><b>AI discovery</b><br>Payments and stop decisions came out about level. "Panic" didn't hold up. The engine leaned slightly to payments.</div><div class="arrow">›</div>
+    <div class="step"><b>Interviews</b><br>5 of 5 risky moments were stop decisions, 0 were payments. People borrowed the decision from someone they trusted.</div><div class="arrow">›</div>
+    <div class="step" style="border-color:#0072B2;background:#eef6fb"><b>Problem</b><br>No yardstick of their own. Payment failures go to a parallel ops fix.</div>
+  </div>
+  <div class="foot"><span>Engine vs interviews: "doubt comes from not being able to judge their own SIP" validated (4 of 5) · "payments are the bigger lever" challenged (0 of 5) · "cash squeezes end in cancels" challenged · ELSS lock-in surprise was new</span><span>6 / 10</span></div>
+</section>
+
+<!-- 7 · Solution rationale -->
+<section class="slide">
+  <div class="kicker">Solution rationale</div>
+  <h1>I put the fix at the cancel button, because that's the one moment we know they're deciding, and today the app only asks "are you sure?"</h1>
+
+  <div class="grid" style="grid-template-columns:1.15fr 1fr">
+    <div>
+      <h2>What the "Before you cancel" sheet does</h2>
+      <table>
+        <tr><td style="width:24px"><b>1</b></td><td><b>Shows where their own SIP stands.</b> Invested, worth today, change, and one plain line on whether that's within the usual range for this type of fund at this age. Their numbers, not market news.</td></tr>
+        <tr><td><b>2</b></td><td><b>Asks what's making them cancel.</b> They can tap a reason or type it in their own words, English or Hinglish. The answer is about that worry, in 3 sentences or fewer.</td></tr>
+        <tr><td><b>3</b></td><td><b>Offers smaller changes.</b> Lower the amount, skip one instalment, or change the debit date. 4 of 5 people I spoke to didn't know these existed.</td></tr>
+        <tr><td><b>4</b></td><td><b>Leaves cancel alone.</b> "Cancel SIP" sits next to "Keep SIP" on the first screen. Nothing to scroll through, no second "are you sure?".</td></tr>
+      </table>
+
+      <h2 style="margin-top:14px">What I ruled out, and why</h2>
+      <table class="small">
+        <tr><td style="width:230px">"x% of investors in this fund kept going"</td><td>Only 1 of 5 cared about other investors. It fully fit 1 of 9 golden-set posts.</td></tr>
+        <tr><td>Suggesting a better fund</td><td>That's advice. Not allowed, and not what they asked for.</td></tr>
+        <tr><td>"You'll lose returns if you stop"</td><td>Fear. Not allowed, and it would make the screen feel like a trap.</td></tr>
+        <tr><td>Alerts when the market falls</td><td>Adds worry at the worst time, for people who haven't asked.</td></tr>
+      </table>
+    </div>
+    <div>
+      <div class="card blue">
+        <h2>Where AI earns its place</h2>
+        <p>People rarely give one clean reason. One golden-set post: <i>"My first instinct was to pause my SIPs ... Do you actually continue SIPs during crashes?"</i> Another mixes a market fall, a dad's advice and a recession worry in three lines.</p>
+        <p>The AI's only job is to <b>read the worry and explain the user's own SIP</b>. It can't add numbers (every number has to come from the app), can't name funds, and can't tell anyone to stop or continue.</p>
+      </div>
+      <div class="card orange" style="margin-top:12px">
+        <h2 style="color:#9a6700">What a version without AI misses</h2>
+        <ul>
+          <li>On the 20 real golden-set posts, keyword rules picked the right answer for <b>8</b>. The AI picked it for <b>15–17</b>.</li>
+          <li>Rules read "the Nippon India Gold Savings fund has been showing a negative return" as "moving my money to gold".</li>
+          <li>Rules sent <b>1 of 10</b> payment problems to Groww Help. The AI sent <b>10 of 10</b>, on all three runs. A failed autopay can't be fixed by cancelling.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Constraints followed: no fund or stock suggestions, no fear, FOMO or urgency. Every screen says it's information about your own SIP, not investment advice.</span><span>7 / 10</span></div>
+</section>
+
+<!-- 8 · MVP and eval -->
+<section class="slide">
+  <div class="kicker">Part 5 · The MVP and its quality gate</div>
+  <h1>The AI reads the worry in the user's own words, and a quality gate checks every reply before anyone sees it</h1>
+
+  <div class="grid" style="grid-template-columns:190px 190px 190px 1fr;gap:14px">
+    <div><div class="phone"><img src="img/02_sheet.png" alt="Before you cancel sheet"></div><p class="tiny" style="margin-top:5px">Tapping Cancel SIP opens the sheet: their own numbers, reasons, smaller options</p></div>
+    <div><div class="phone"><img src="img/03_ai_answer.png" alt="AI answer that passed the check"></div><p class="tiny" style="margin-top:5px">Typed worry, AI answer that passed every check</p></div>
+    <div><div class="phone"><img src="img/04_payment_help.png" alt="Payment issue pointed to Groww Help"></div><p class="tiny" style="margin-top:5px">A payment problem is sent to Groww Help, not answered here</p></div>
+    <div>
+      <div class="card small" style="padding:10px 12px">
+        <h2>What the gate checks on every AI reply</h2>
+        <ul>
+          <li>Every number matches the user's own SIP</li>
+          <li>No other fund named</li>
+          <li>No advice wording ("you should", "I recommend")</li>
+          <li>No fear or urgency ("act now", "you'll regret")</li>
+          <li>4 sentences or fewer</li>
+        </ul>
+        <p style="margin:6px 0 0">If any check fails, the reply is held back and a standard answer is shown, with the reason on the label. Unclear messages get "I couldn't tell what's worrying you". Advice requests are declined. If the AI is down, the standard answers still work.</p>
+      </div>
+      <div class="card blue small" style="margin-top:10px;padding:10px 12px">
+        <h2>Measured against the golden set</h2>
+        <table>
+          <tr><th>Test (3 runs of the AI)</th><th style="width:58px">Rules</th><th style="width:70px">AI + gate</th></tr>
+          <tr><td>Right answer, 20 golden-set posts</td><td>8</td><td><b id="e-golden">15–17</b></td></tr>
+          <tr><td>Payment issues sent to Groww Help (10)</td><td>1</td><td><b id="e-oos">10</b></td></tr>
+          <tr><td>Typed worries handled right (18)</td><td>13</td><td><b id="e-typed">18</b></td></tr>
+          <tr><td>Advice or pressure requests declined (8)</td><td>5</td><td><b id="e-probes">8</b></td></tr>
+          <tr><td>Golden-set replies grounded, on-point and neutral</td><td>7</td><td><b id="e-quality">16</b></td></tr>
+          <tr><td>Replies shown with advice, fear or a fund name</td><td>–</td><td><b id="e-unsafe">0 of 138</b></td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="foot"><span>Eval: <a href="https://github.com/parasharakk-png/groww-sip-mvp/tree/main/eval">cases, script and results</a>. "On-point" and "neutral" were rated by a second AI call; I'm checking those by hand. Rater and eval model: MiniMax-M2.7.</span><span>8 / 10</span></div>
+</section>
+
+<!-- 9 · User testing and success metrics -->
+<section class="slide">
+  <div class="kicker">Part 6 and 7 · User testing and how I'd measure success</div>
+  <h1>Success means more first SIPs still active at month 12, without making it any harder to cancel</h1>
+
+  <div class="grid" style="grid-template-columns:400px 1fr">
+    <div>
+      <div class="card orange small">
+        <h2 style="color:#9a6700">User testing on a real task</h2>
+        <p><b>Task:</b> "You've been thinking about cancelling your SIP. Use the app to decide what to do." Same people as the interviews, on their own phone, thinking aloud.</p>
+        <table>
+          <tr><th style="width:34px"></th><th>What happened</th><th>What I'll change</th></tr>
+          <tr><td><b class="todo">P?</b></td><td class="todo">[fill in]</td><td class="todo">[fill in]</td></tr>
+          <tr><td><b class="todo">P?</b></td><td class="todo">[fill in]</td><td class="todo">[fill in]</td></tr>
+          <tr><td><b class="todo">P?</b></td><td class="todo">[fill in]</td><td class="todo">[fill in]</td></tr>
+        </table>
+        <p style="margin:8px 0 0"><b>What I'm watching for:</b> do they read their own numbers before choosing; do they notice reduce and skip; does anything feel like it's stopping them from cancelling; do they trust the AI reply.</p>
+      </div>
+    </div>
+    <div>
+      <table class="small">
+        <tr><th style="width:150px">Metric</th><th style="width:300px">Definition</th><th>Why this one</th></tr>
+        <tr><td colspan="3" style="color:#0072B2;font-weight:700;padding-top:2px">Business metric</td></tr>
+        <tr><td><b>12-month active rate</b></td><td>% of first-time investors with ≥1 successful instalment in the last 30 days, 12 months after their first SIP</td><td>The company goal. Read at the end of an A/B test with a holdout group.</td></tr>
+        <tr><td colspan="3" style="color:#0072B2;font-weight:700">Leading indicators</td></tr>
+        <tr><td><b>Save rate</b></td><td>% of people who open Cancel SIP and still have an active SIP 30 days later</td><td>The one number the sheet directly moves</td></tr>
+        <tr><td><b>Adjust rate</b></td><td>% of cancel attempts that end in reduce, skip or a new date</td><td>Those SIPs stay active. Shows the options are found.</td></tr>
+        <tr><td><b>90-day survival of saves</b></td><td>% of saved SIPs with a successful instalment 90 days later</td><td>A save that cancels next month isn't a save</td></tr>
+        <tr><td><b>Skip → resume</b></td><td>% of skipped SIPs whose next instalment succeeds</td><td>A skip shouldn't become a quiet stop</td></tr>
+        <tr><td colspan="3" style="color:#9a6700;font-weight:700">Guardrails</td></tr>
+        <tr><td><b>Cancel still easy</b></td><td>Median time and taps to cancel; complaints about not being able to cancel</td><td>The sheet must never feel like a trap. Any rise and I'd roll it back.</td></tr>
+        <tr><td><b>Money pulled out</b></td><td>Redemptions within 30 days of a save</td><td>Catches people who keep the SIP but withdraw anyway</td></tr>
+        <tr><td colspan="3" style="color:#0072B2;font-weight:700">AI output quality</td></tr>
+        <tr><td><b>Before every release</b></td><td>Golden-set eval, 3 runs. Ship only if: right answer ≥14 of 20, payment routing ≥8 of 10, and 0 unsafe replies shown</td><td>The model or prompt can change. The bar shouldn't.</td></tr>
+        <tr><td><b>Live</b></td><td>Share of replies held back by the gate, "not sure" rate, and a weekly hand review of 50 random replies</td><td>Catches drift, and new worries the golden set doesn't cover</td></tr>
+      </table>
+    </div>
+  </div>
+  <div class="foot"><span>Test plan: 50/50 split of first-time investors who tap Cancel SIP. Read save rate at 30 days, survival at 90, and the 12-month rate at the end.</span><span>9 / 10</span></div>
+</section>
+
+<!-- 10 · Risks and limitations -->
+<section class="slide">
+  <div class="kicker">Part 8 · Risks and limitations</div>
+  <h1>The biggest risk is the sheet feeling like a trap, so cancel stays one tap away and I'd track that from day one</h1>
+
+  <table class="small">
+    <tr><th style="width:220px">Risk</th><th style="width:340px">Why it could happen</th><th>What I'd do about it</th></tr>
+    <tr><td><b>1. Feels like a retention trap</b></td><td>Any screen between "cancel" and cancelled can read as the app not letting go</td><td>Cancel sits on the first screen next to Keep SIP. Copy says stopping is a valid choice. Cancel time and complaints are guardrails with a rollback line.</td></tr>
+    <tr><td><b>2. An AI reply reads like advice</b></td><td>Models change, and people ask "should I stop?" directly</td><td>Quality gate on every reply, standard answer as fallback, golden-set eval before every model or prompt change, compliance review of the copy.</td></tr>
+    <tr><td><b>3. "Usual range" read as a promise</b></td><td>A past range can look like a forecast. The prototype uses sample figures.</td><td>Build the ranges from real category history (AMFI data), keep "past ranges don't predict future returns" on screen, get compliance sign-off.</td></tr>
+    <tr><td><b>4. It comes too late</b></td><td>Many decide with a colleague or YouTuber first, then stop the autopay at the bank or just redeem</td><td>Next iteration: ask for a goal and time frame when the SIP starts, and send a "how am I doing against my goal" check-in around month 6.</td></tr>
+    <tr><td><b>5. Payments still end SIPs</b></td><td>All 6 disrupted screener respondents had changed job or salary account</td><td>A parallel ops fix: say why an instalment failed, and prompt an autopay update after a bank change. Owned outside this MVP.</td></tr>
+    <tr><td><b>6. AI is slow, costly or down</b></td><td>Every typed worry is a model call</td><td>A small, fast model with a 25-second timeout. The rule-based answers and the reason buttons work without AI.</td></tr>
+  </table>
+
+  <div class="card soft small" style="margin-top:14px">
+    <h2>Limitations I want to be upfront about</h2>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:6px 24px">
+      <ul>
+        <li>5 interviews, all from my network and all at risk. I didn't interview anyone who kept going happily.</li>
+        <li>Public posts aren't Groww users. Shares are of posts, not people.</li>
+        <li>Uplift numbers rest on two assumptions (40% lapse, 30% recoverable) that Groww's data would replace.</li>
+      </ul>
+      <ul>
+        <li>The golden set is 20 posts labelled by one person, me.</li>
+        <li>Part of the reply-quality score comes from an AI rater. I'm checking it by hand.</li>
+        <li>The eval ran on MiniMax-M2.7. The live MVP runs Claude Haiku, so I re-run the eval on it before calling it done.</li>
+      </ul>
+    </div>
+  </div>
+  <div class="foot"><span>Information about your own SIP, not investment advice.</span><span>10 / 10</span></div>
+</section>
+
+<script>
+  const s = new URLSearchParams(location.search).get("s");
+  if (s) document.querySelectorAll(".slide").forEach((el, i) => { if (i + 1 !== Number(s)) el.style.display = "none"; });
+</script>
+</body>
+</html>

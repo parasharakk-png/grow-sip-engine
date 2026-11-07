@@ -167,7 +167,7 @@ function reply(kind, f) {
   const cancelEffect = `Cancelling stops the ${due} instalment and every one after it. Your ${value} stays invested; nothing is sold.`;
   const replies = {
     advice: { ok: false, title: "I can't suggest funds",
-      body: "This check-in doesn't say which fund to pick or buy. It only explains your own SIP and the options on this screen." },
+      body: "This check-in doesn't say which fund to pick. It only explains your own SIP and the options on this screen." },
     fomo: { ok: false, title: "No pressure here",
       body: "This check-in doesn't use fear or urgency. Cancelling is always available below." },
     decide: { ok: true, title: "That's your call", options: ["amount", "skip", "date"],
@@ -202,8 +202,12 @@ function reply(kind, f) {
 }
 
 /** The quality gate: numbers must match the fact pack; no advice, fund names or urgency. */
-const BLOCKED = /\b(buy|switch to|invest in|best fund|recommend|hurry|last chance|don'?t miss|everyone is|guarantee)/i;
-function numbersIn(s) { return s.match(/₹[\d,]+(?:\.\d+)?|[+−-]?\d+(?:\.\d+)?%|\d+\.\d{2} units/g) || []; }
+const BLOCKED = /\b(buy (now|more|another|this fund|that fund|units)|switch to|invest in|best fund|recommend|hurry|last chance|don'?t miss|everyone is|guarantee)/i;
+const DIRECTIVE = /\byou should (continue|stop|keep|cancel|invest|redeem|stay)|\bi (recommend|suggest|advise)\b|\bbetter to (stay|continue|stop|exit|keep)/i;
+const FEAR = /too late|act now|you('ll| will) lose|regret|miss out|before it'?s|\bpanic\b|crash (again|further)/i;
+const normNum = (n) => n.replace(/,/g, "").replace(/^-/, "−");
+function numbersIn(s) { return (s.match(/₹[\d,]+(?:\.\d+)?|[+−-]?\d+(?:\.\d+)?%|\d+\.\d{2} units/g) || []).map(normNum); }
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 function gate(r, f) {
   if (!r.ok) return { ...r, check: "declined" };
@@ -217,6 +221,81 @@ function gate(r, f) {
   }
   return { ...r, check: r.kind === "unsure" ? "unsure" : "passed" };
 }
+
+/* ---------- The AI path: the model reads the user's own words; this gate decides what is shown ---------- */
+
+const API_URL = "api/explain";
+const HELP_URL = "https://groww.in/help";
+const SIP_OPTIONS = ["amount", "skip", "date"];
+
+/** Everything the model may quote. It sees no other numbers. */
+function factsText(f) {
+  const k = factPack(f);
+  return [
+    `Fund type: ${k.r.label}${f.elss ? " (ELSS: each instalment is locked for 3 years)" : ""}.`,
+    k.so,
+    `Monthly instalment: ${inr(f.monthly)}. Next instalment: ${fmt(nextDue(f), true)}.`,
+    k.units,
+    k.range,
+    "Cancelling stops future instalments; money already invested stays invested until the user withdraws it.",
+  ].join("\n");
+}
+
+function outOfScope() {
+  return { kind: "out_of_scope", ok: true, title: "This looks like a payment or app issue", options: [],
+    body: `Cancelling won't fix a failed payment, autopay or bank-account problem. Groww Help explains failed SIPs `
+      + `and autopay step by step: <a class="underline" href="${HELP_URL}" target="_blank" rel="noopener">groww.in/help</a>.` };
+}
+
+/** Gate a model draft. Anything doubtful falls back to the rule answer for the same words, with the reason shown. */
+function gateAI(m, f, text) {
+  const ruleAnswer = (check, why) => {
+    const a = gate(reply(classify(text), f), f);
+    return { ...a, source: "rules", check: a.check === "passed" ? check : a.check, why: a.why || why };
+  };
+  if (!m || typeof m.reply !== "string" || typeof m.intent !== "string") {
+    return ruleAnswer("unavailable", "the AI service didn't answer");
+  }
+  if (m.intent === "payment" || (m.in_scope === false && m.intent !== "unsure")) {
+    return { ...outOfScope(), source: "ai", check: "out_of_scope" };
+  }
+  if (m.intent === "unsure" || m.confidence !== "high") return ruleAnswer("fallback", "the AI wasn't sure what you meant");
+  if (m.intent === "advice" || m.intent === "fomo") return { ...reply(m.intent, f), source: "ai", check: "declined" };
+  const shown = `${m.title}. ${m.reply}`;
+  const k = factPack(f);
+  const allowed = new Set(numbersIn([k.so, k.range, k.units, factsText(f)].join(" ")));
+  const badNumber = numbersIn(shown).find((n) => !allowed.has(n));
+  const otherFund = FUNDS.find((o) => o.id !== f.id && shown.toLowerCase().includes(o.scheme.toLowerCase()));
+  const sentences = m.reply.split(/(?<=[.!?])\s+/).filter(Boolean).length;
+  const why = badNumber ? `a number (${badNumber}) did not match your SIP`
+    : otherFund ? "it named another fund"
+    : BLOCKED.test(shown) || DIRECTIVE.test(shown) ? "it read like advice"
+    : FEAR.test(shown) ? "it used fear or urgency"
+    : sentences > 4 ? "it was too long" : "";
+  if (why) return ruleAnswer("fallback", why);
+  return { kind: m.intent, ok: true, source: "ai", check: "passed", title: escapeHtml(m.title), body: escapeHtml(m.reply),
+    options: (m.options || []).filter((o) => SIP_OPTIONS.includes(o)) };
+}
+
+async function askAI(f, text) {
+  state.asking = true;
+  state.answer = { check: "loading", title: "Reading what you wrote…", body: "", options: [] };
+  render();
+  let m = null;
+  try {
+    const res = await fetch(API_URL, { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ text, facts: factsText(f) }), signal: AbortSignal.timeout(30000) });
+    if (res.ok) m = await res.json();
+  } catch { /* falls back to the rule answer below */ }
+  state.asking = false;
+  if (!state.sheet || current() !== f) return;
+  state.answer = gateAI(m, f, text);
+  state.reason = REASONS.some((r) => r.id === state.answer.kind) ? state.answer.kind : null;
+  logEvent("free_text", { kind: state.answer.kind, check: state.answer.check, source: state.answer.source });
+  render();
+}
+
+const on = (type, fn) => typeof document !== "undefined" && document.body.addEventListener(type, fn);
 
 /* ---------- Event log for testing (mentor view only) ---------- */
 
@@ -243,7 +322,36 @@ function renderControls() {
     btn("tab:Dashboard", "Open Dashboard"),
     btn("tab:SIPs", "Open SIPs"),
     btn("reset", "Reset demo"),
-  ].join("") + `<p class="w-full text-[11px] text-neutral-600 mt-1">Test log · cancel taps ${s.intents} · changed instead ${s.changed} · kept ${s.kept} · cancelled ${s.cancelled}</p>`;
+  ].join("") + `<p class="w-full text-[11px] text-neutral-600 mt-1">Test log · cancel taps ${s.intents} · changed instead ${s.changed} · kept ${s.kept} · cancelled ${s.cancelled}</p>`
+    + qualityPanel();
+}
+
+function qualityPanel() {
+  const q = state.quality;
+  if (!q) return "";
+  const range = (x) => (x.aiMin === x.aiMax ? `${x.aiMin}` : `${x.aiMin}–${x.aiMax}`);
+  const row = (label, rules, ai) => `<tr><td class="pr-3">${label}</td><td class="pr-3">${rules}</td><td>${ai}</td></tr>`;
+  const score = (label, x) => row(`${label} (${x.n})`, x.rules, range(x));
+  const ql = q.quality;
+  return `<details class="w-full text-[11px] text-neutral-700 mt-1">
+    <summary class="cursor-pointer font-semibold">Quality · golden set ${range(q.golden)}/${q.golden.n} with AI vs ${q.golden.rules}/${q.golden.n} with rules · advice or fear shown: ${q.unsafeShown}</summary>
+    <table class="mt-1"><tr class="text-neutral-500"><td class="pr-3">Understood the worry</td><td class="pr-3">Rules</td><td>AI + gate (${q.runs} runs)</td></tr>
+      ${score("Golden set", q.golden)}
+      ${score("Payment issues sent to Groww Help", q.outOfScope)}
+      ${score("Typed worries", q.typed)}
+      ${score("Advice or fear probes handled", q.probes)}
+      ${ql ? `<tr class="text-neutral-500"><td class="pr-3 pt-1">Reply quality, golden set (${ql.n})</td><td></td><td></td></tr>
+      ${row("Grounded: only your SIP's numbers", ql.rules.grounded, ql.ai.grounded)}
+      ${row("Answers the worry", ql.rules.answers, ql.ai.answers)}
+      ${row("Neutral: no push, no prediction", ql.rules.neutral, ql.ai.neutral)}
+      ${row("All three", ql.rules.allThree, ql.ai.allThree)}` : ""}
+    </table>
+    <p class="mt-1">Gate held back ${q.gateHeld} of ${q.aiReplies} AI drafts. Model ${q.model} · run ${q.ranAt.slice(0, 10)}.</p>
+  </details>`;
+}
+
+async function loadQuality() {
+  try { state.quality = await (await fetch("eval/results.json")).json().then((r) => r.summary); renderControls(); } catch { /* no eval run yet */ }
 }
 
 function header() {
@@ -365,11 +473,16 @@ function sipDetails() {
 /* ---------- The "before you cancel" sheet ---------- */
 
 function answerCard(a) {
-  const badge = a.check === "declined" ? "Declined"
-    : a.check === "fallback" ? `Fallback shown: the reply failed a check (${a.why})`
-    : a.check === "unsure" ? "Not sure what you meant · showing the basics"
-    : "Checked: numbers match your SIP · no advice";
-  const tone = a.check === "declined" ? "border-white/20" : "border-groww/40";
+  const badge = {
+    loading: "Checking…",
+    declined: "Declined",
+    fallback: `Reply held back (${a.why}) · standard answer shown`,
+    unavailable: "AI unavailable · standard answer shown",
+    out_of_scope: "Outside this screen · pointing to Groww Help",
+    unsure: "Not sure what you meant · showing the basics",
+    passed: a.source === "ai" ? "AI answer · checked: numbers match your SIP · no advice" : "Checked: numbers match your SIP · no advice",
+  }[a.check];
+  const tone = a.check === "declined" || a.check === "loading" ? "border-white/20" : "border-groww/40";
   return `<article class="mt-3 rounded-2xl border ${tone} p-4">
     <p class="text-[11px] ${a.check === "passed" ? "text-groww" : "text-white/60"}">${badge}</p>
     <h3 class="font-semibold mt-1 text-[15px]">${a.title}</h3>
@@ -473,7 +586,7 @@ function closeSheet(toastText) {
   state.toast = toastText || "";
 }
 
-document.body.addEventListener("click", (e) => {
+on("click", (e) => {
   const b = e.target.closest("[data-action]");
   if (!b || b.tagName === "SELECT" || b.tagName === "INPUT") return;
   const [action, arg] = b.dataset.action.split(":");
@@ -492,11 +605,9 @@ document.body.addEventListener("click", (e) => {
     state.answer = gate(reply(arg, f), f);
     logEvent("reason_chosen", { check: state.answer.check });
   }
-  if (action === "ask" && state.draft.trim()) {
-    const kind = classify(state.draft);
-    state.reason = REASONS.some((r) => r.id === kind) ? kind : null;
-    state.answer = gate(reply(kind, f), f);
-    logEvent("free_text", { kind, check: state.answer.check });
+  if (action === "ask" && state.draft.trim() && !state.asking) {
+    askAI(f, state.draft.trim());
+    return;
   }
   if (action === "option") state.option = state.option === arg ? null : arg;
   if (action === "save-amount") {
@@ -536,17 +647,19 @@ document.body.addEventListener("click", (e) => {
   render();
 });
 
-document.body.addEventListener("input", (e) => {
+on("input", (e) => {
   if (e.target.id === "worry") state.draft = e.target.value;
 });
 
-document.body.addEventListener("keydown", (e) => {
+on("keydown", (e) => {
   if (e.target.id === "worry" && e.key === "Enter") document.querySelector('[data-action="ask"]').click();
 });
 
-document.body.addEventListener("change", (e) => {
+on("change", (e) => {
   if (e.target.dataset.action === "pick-amount") state.pickAmount = Number(e.target.value);
   if (e.target.dataset.action === "pick-day") state.pickDay = Number(e.target.value);
 });
 
-render();
+const browser = typeof document !== "undefined";
+if (browser) { render(); loadQuality(); }
+if (typeof module !== "undefined") module.exports = { FUNDS, classify, reply, gate, gateAI, factPack, factsText, numbersIn, BLOCKED, DIRECTIVE, FEAR };
