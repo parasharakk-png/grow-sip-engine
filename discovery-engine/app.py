@@ -185,25 +185,16 @@ def render_post_card(p: pd.Series, extra: str = "") -> None:
             f"**#{p['item_id']}** · {p['source']} · {when or 'date unknown'} · {p['cohort']} · "
             f"[open source ↗]({p['url']})" + (f" · {extra}" if extra else "")
         )
-        tags = [
-            f"Cause: {labels.get(p['primary_reason'], 'not stated')}",
-            f"Behaviour: {p['behaviour'].replace('_', ' ')}",
-            f"Stage: {p['lifecycle'].replace('_', ' ')}",
-            f"Emotion: {p['emotion'].replace('_', ' ')}",
-        ]
-        st.caption(" · ".join(tags))
+        st.caption(f"Cause: {labels.get(p['primary_reason'], 'not stated')}")
         st.caption(
-            f"Tags: codebook by {provenance()['coding_model']}, cause by text rules · Quote check: {p['quote_check']}"
-            + _review_status(p)
+            f"Quote: {p['quote_check']}" + _review_status(p)
         )
 
 
 def _review_status(p: pd.Series) -> str:
-    if p["golden_verified"]:
-        return f" · **In the {GOLDEN_HUMAN.lower()}**, labels verified by a human"
-    if p["in_golden"]:
-        return f" · **In the {GOLDEN_HUMAN.lower()}**, labels awaiting human verification"
-    return " · not individually reviewed"
+    if p["golden_verified"] or p["in_golden"]:
+        return " · in the 20 I labelled"
+    return ""
 
 
 def table_view(data: pd.DataFrame, label: str = "Table view") -> None:
@@ -675,62 +666,81 @@ def render_opportunity_deep_dive(df: pd.DataFrame, opps: pd.DataFrame) -> None:
 
 
 def render_opportunity_tab(df: pd.DataFrame) -> None:
-    st.subheader("Opportunity sizing: which fix moves 12-month SIP continuation the most?")
+    st.subheader("If Groww fixed one thing, which one moves month-12 the most?")
+    lapse, rec = st.session_state["lapse_rate"], st.session_state["recovery_rate"]
     st.markdown(
-        "Every post about stopping or lapsing gets one **primary cause** from its text. Causes are grouped into six "
-        "product opportunity areas, each tied to a branch of the metric, and sized with explicit assumptions."
+        f"Each post about stopping gets one cause from the text. I grouped those into six product areas. "
+        f"I don't have Groww's cohort file, so I take **{lapse:.0f}% of first SIPs gone by month 12** and "
+        f"**{rec:.0f}% of each cause can come back** (sidebar)."
     )
-    opps = opportunity_table(df, st.session_state["lapse_rate"] / 100, st.session_state["recovery_rate"] / 100)
+    opps = opportunity_table(df, lapse / 100, rec / 100)
     opps.insert(0, "Rank", range(1, len(opps) + 1))
     opps["Short name"] = opps["code"].map(OPP_SHORT)
     top, second = opps.iloc[0], opps.iloc[1]
     total = float(opps["Est. uplift (pp)"].sum())
-    lead = float(top["Est. uplift (pp)"]) / float(second["Est. uplift (pp)"]) if second["Est. uplift (pp)"] else 0
 
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Stop posts", int(df["is_at_risk"].sum()), help="Posts about stopping or lapsing analysed")
-    k2.metric("#1 bet uplift", f"+{top['Est. uplift (pp)']:.2f} pp", help=f"Uplift from the #1 bet: {top['Opportunity']}")
-    k3.metric("Lead over #2", f"{lead:.1f}×", help=f"#1 bet's uplift ÷ #2 bet's ({second['Opportunity']})")
-    k4.metric("All bets", f"+{total:.2f} pp", help="All opportunities combined")
+    k1.metric("Stop posts", int(df["is_at_risk"].sum()))
+    k2.metric("Largest area", f"+{top['Est. uplift (pp)']:.1f} pp", help=top["Opportunity"])
+    k3.metric("Next", f"+{second['Est. uplift (pp)']:.1f} pp", help=second["Opportunity"])
+    k4.metric("If all six were fixed", f"+{total:.1f} pp")
+
     ratio = _opp_ratio(top)
-    st.success(
-        f"**{top['Opportunity']}** is the highest-leverage bet. It is the primary cause in "
-        f"{top['% of at-risk posts']:.0f}% of posts about stopping, is mentioned "
-        f"{f'{ratio}× more often' if ratio else 'far more often'} by people who stopped than by people who kept "
-        f"investing ({top['Mentioned in at-risk %']:.0f}% vs {top['% among continuers']:.0f}%), and is worth about "
-        f"+{top['Est. uplift (pp)']:.2f} pp: {lead:.1f}× the next bet, *{second['Opportunity']}*."
+    how = f"{ratio}× more often" if ratio else "more often"
+    st.markdown(
+        f"**{top['Short name']}** is the largest in this set. It's the main cause in "
+        f"{top['% of at-risk posts']:.0f}% of stop posts, shows up {how} among people who stopped than among people "
+        f"who kept going, and comes to about +{top['Est. uplift (pp)']:.1f} pp. Next is **{second['Short name']}** "
+        f"(+{second['Est. uplift (pp)']:.1f} pp). Posts can't tell you which of these actually ends a first SIP — "
+        "that's why I used interviews to pick the MVP."
     )
 
-    compare_t, deep_t, branch_t = st.tabs(["Compare", "Deep dive", "Metric branches"])
-    with compare_t:
-        render_opportunity_compare(opps)
-    with deep_t:
-        render_opportunity_deep_dive(df, opps)
-    with branch_t:
-        render_metric_branches_tab(df)
+    show = opps.rename(columns={
+        "Short name": "Area",
+        "% of at-risk posts": "% of stop posts",
+        "First-timer share %": "% first-timers",
+        "Est. uplift (pp)": "If this were fixed",
+    })[["Rank", "Area", "% of stop posts", "% first-timers", "If this were fixed", "Confidence"]]
+    st.dataframe(
+        show, hide_index=True, width="stretch",
+        column_config={
+            "% of stop posts": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f%%"),
+            "% first-timers": st.column_config.NumberColumn(format="%.0f%%"),
+            "If this were fixed": st.column_config.NumberColumn(format="+%.1f pp"),
+        },
+    )
+    _opp_bar_chart(opps, "Est. uplift (pp)", "If this were fixed (pp on the 12-month rate)", "+{:.1f} pp")
+    st.caption(
+        "These are shares of public posts, not of Groww users. Change the two assumptions in the sidebar and the "
+        "bars move."
+    )
 
 
 def render_how_it_works(df: pd.DataFrame) -> None:
-    st.subheader("How it works & evidence")
-    st.markdown(NORTH_STAR)
-    v = provenance()
+    st.subheader("Where the numbers come from")
     st.markdown(
-        f"""
-| Step | What happens | AI used |
-|------|--------------|---------|
-| **1. Collect** | Public posts from Play Store, App Store, Reddit, YouTube and TradingQ&A | — |
-| **2. Select** | Keep SIP posts about the author's own experience; drop duplicates; find first-time investors | LLM screening (`{v['screen_model']}`) |
-| **3. Code** | Tag each post with a fixed codebook: journey stage, SIP status, behaviour, link to lapse | LLM coding (`{v['coding_model']}`) |
-| **4. Find causes** | Auditable text rules give each post one cause, and each payment post one sub-cause | — |
-| **5. Size & validate** | Causes → opportunities → est. uplift; checked against a golden set and 5 interviews | — |
+        "I started with public posts about SIPs. I kept the ones where someone is talking about their own SIP, "
+        "dropped duplicates, and marked first-time investors. Each post gets a cause from the text. Those causes "
+        "are sized, then checked against a small set I labelled by hand and against five interviews."
+    )
+    st.markdown(
+        """
+1. **Collect** — Play Store, App Store, Reddit, YouTube, TradingQ&A.
+2. **Keep** — their own SIP, not a duplicate, first 12 months where I can tell.
+3. **Cause** — one reason per stop post, from the words on the page.
+4. **Size** — share of stop posts × the two assumptions in the sidebar.
+5. **Check** — 20 hand-labelled posts, then 5 interviews.
 """
     )
 
-    st.markdown("**Sources and volume**")
+    st.markdown("**What I collected**")
     rows = []
     for src, g in df.groupby("source"):
-        rows.append({"Source": src, "Posts": len(g), "First-time investor posts": int((g["cohort"] == COHORT_TARGET).sum()),
-                     "How collected": SOURCE_METHODS.get(src, ("Unknown", ""))[0]})
+        rows.append({
+            "Source": src,
+            "Posts": len(g),
+            "First-timers": int((g["cohort"] == COHORT_TARGET).sum()),
+        })
     st.dataframe(pd.DataFrame(rows).sort_values("Posts", ascending=False), hide_index=True, width="stretch")
 
     golden = load_golden()
@@ -738,39 +748,51 @@ def render_how_it_works(df: pd.DataFrame) -> None:
     c = summary_counts(golden)
     checks = int(scores["Rows"].sum())
     agree = int((scores["Rows"] * scores["Agreement %"] / 100).round().sum())
-    st.markdown(f"**Golden set: engine labels vs {c['rows']} labelled posts**")
+    show = scores.copy()
+    show["Problem"] = show["Problem"].map({
+        "P2": "Stop decision",
+        "P1": "Failed payments",
+    })
+    show = (show.groupby(["Problem", "What is checked"], as_index=False)["Agreement %"].mean())
+    show = show.rename(columns={"What is checked": "What I checked", "Agreement %": "Match with my labels"})
+    order = {"Stop decision": 0, "Failed payments": 1}
+    show["_o"] = show["Problem"].map(order)
+    show = show.sort_values(["_o", "Match with my labels"], ascending=[True, False]).drop(columns="_o")
+
+    st.markdown("**The 20 posts I labelled by hand**")
     m1, m2, m3 = st.columns(3)
-    m1.metric("Posts labelled", c["rows"], help=f"{c['p1']} for Problem 1, {c['p2']} for Problem 2; "
-              f"{int(df['golden_verified'].sum())} verified by a human so far")
-    m2.metric("Overall agreement", f"{agree / checks * 100:.0f}%", help=f"{checks} label checks")
-    m3.metric("Disagreements", len(misses))
+    m1.metric("Posts", c["rows"], help=f"{c['p2']} stop decision, {c['p1']} failed payments")
+    m2.metric("How often the engine matched", f"{agree / checks * 100:.0f}%")
+    m3.metric("Places it didn't", len(misses))
     st.dataframe(
-        scores[["Problem", "What is checked", "Engine method", "Rows", "Agreement %"]], hide_index=True,
-        width="stretch",
-        column_config={"Agreement %": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f%%")},
+        show, hide_index=True, width="stretch",
+        column_config={
+            "Match with my labels": st.column_config.ProgressColumn(min_value=0, max_value=100, format="%.0f%%"),
+        },
     )
-    st.caption("The selection funnel, data quality checks, codebook and every disagreement are in the AI Evidence Log.")
+    st.caption(
+        "These 20 were picked to be hard, not typical. A mismatch is useful: it shows where a keyword would have "
+        "fooled the engine. Full notes are in the Evidence Log."
+    )
 
 
 def render_header(df: pd.DataFrame) -> None:
     st.title("Groww SIP Discovery Engine")
     st.markdown(
-        "AI-powered discovery over public investor conversations — **why first-time investors keep or lose "
-        "their SIP**, which opportunity areas matter most, and how each insight was validated."
+        "Why first-time investors keep or lose their SIP — from public posts and five interviews."
     )
     c1, c2, c3 = st.columns(3)
     with c1.container(border=True):
-        st.markdown("**Goal metric**")
-        st.caption("% of first-time MF investors with an active SIP 12 months after their first SIP "
-                   "(≥1 successful instalment in the last 30 days).")
+        st.markdown("**The Groww number**")
+        st.caption("Share of first-time MF investors with an SIP still running 12 months later "
+                   "(at least one debit in the last 30 days).")
     with c2.container(border=True):
-        st.markdown("**Evidence**")
-        st.caption(f"{len(df)} coded public posts from Reddit, TradingQ&A, YouTube, Play Store and App Store: "
-                   f"{int((df['cohort'] == COHORT_TARGET).sum())} first-time investors, "
-                   f"{int((df['cohort'] == COHORT_COMPARISON).sum())} other investors for comparison.")
+        st.markdown("**What I used**")
+        st.caption(f"{len(df)} public posts · {int((df['cohort'] == COHORT_TARGET).sum())} first-timers · "
+                   f"9 screener replies · 5 interviews.")
     with c3.container(border=True):
-        st.markdown("**Guardrails**")
-        st.caption("No fund or stock recommendations. No fear, FOMO or urgency nudges. Not investment advice.")
+        st.markdown("**What I will not do**")
+        st.caption("No fund picks. No fear or FOMO. Not investment advice.")
 
 
 def render_sidebar(df: pd.DataFrame) -> None:
@@ -797,45 +819,31 @@ def _options(df: pd.DataFrame, col: str) -> list[str]:
 
 
 def render_browse_tab(df: pd.DataFrame) -> None:
-    st.subheader("Evidence explorer")
-    st.caption("Every post the engine uses, with where it came from, how it was tagged and whether a human has "
-               "checked it. Open the source to read the original.")
+    st.subheader("Read the posts")
+    st.caption("Open any row to the original. This is the same set the other tabs are built on.")
     labels = {t.code: t.label for t in STOP_REASONS}
     labels["unclear"] = "Reason not stated"
-    pretty = lambda v: v.replace("_", " ").capitalize()  # noqa: E731
 
-    q = st.text_input("Search by keyword", key="ex_q", placeholder="e.g. autopay, salary account, crash")
+    q = st.text_input("Search", key="ex_q", placeholder="e.g. should I stop, autopay, red")
     c1, c2, c3 = st.columns(3)
     sel_src = c1.multiselect("Source", _options(df, "source"), key="ex_src")
-    sel_r = c2.multiselect("Primary cause", list(labels), format_func=labels.get, key="ex_cause")
-    sel_b = c3.multiselect("Metric branch", sorted(df["metric_branch"].unique()),
-                           format_func=lambda x: METRIC_BRANCH_LABELS.get(x, x), key="ex_branch")
-    c4, c5, c6 = st.columns(3)
-    sel_beh = c4.multiselect("Behaviour", _options(df, "behaviour"), format_func=pretty, key="ex_beh")
-    sel_life = c5.multiselect("Journey stage", _options(df, "lifecycle"), format_func=pretty, key="ex_life")
-    sel_emo = c6.multiselect("Emotion", _options(df, "emotion"), format_func=pretty, key="ex_emo")
-    years = df["year"].dropna()
-    c7, c8, c9 = st.columns([2, 2, 1])
-    lo, hi = int(years.min()), int(years.max())
-    yr = c7.slider("Publication year", lo, hi, (lo, hi), key="ex_year")
-    cohort = c8.radio("Group", ["All", COHORT_TARGET, COHORT_COMPARISON], horizontal=True, key="ex_group")
-    as_table = c9.toggle("Table", key="ex_table", help="Switch between cards and a table")
-    f1, f2, f3 = st.columns(3)
+    sel_r = c2.multiselect("Cause", list(labels), format_func=labels.get, key="ex_cause")
+    cohort = c3.radio("Who", ["All", "First-timers", "Other investors"], horizontal=True, key="ex_group")
+    f1, f2 = st.columns(2)
     only_risk = f1.checkbox("Only posts about stopping", key="ex_risk")
-    only_golden = f2.checkbox(f"Only the {GOLDEN_HUMAN.lower()}", key="ex_golden")
-    undated = f3.checkbox("Include posts without a date", value=True, key="ex_undated")
+    only_golden = f2.checkbox("Only the 20 I labelled", key="ex_golden")
 
     view = df
     if q:
         view = view[view["content"].str.contains(re.escape(q), case=False, na=False)]
-    for col, sel in (("source", sel_src), ("primary_reason", sel_r), ("metric_branch", sel_b),
-                     ("behaviour", sel_beh), ("lifecycle", sel_life), ("emotion", sel_emo)):
-        if sel:
-            view = view[view[col].isin(sel)]
-    if cohort != "All":
-        view = view[view["cohort"] == cohort]
-    in_range = view["year"].between(*yr)
-    view = view[in_range | (view["year"].isna() & undated)]
+    if sel_src:
+        view = view[view["source"].isin(sel_src)]
+    if sel_r:
+        view = view[view["primary_reason"].isin(sel_r)]
+    if cohort == "First-timers":
+        view = view[view["cohort"] == COHORT_TARGET]
+    elif cohort == "Other investors":
+        view = view[view["cohort"] == COHORT_COMPARISON]
     if only_risk:
         view = view[view["is_at_risk"]]
     if only_golden:
@@ -847,28 +855,12 @@ def render_browse_tab(df: pd.DataFrame) -> None:
     page = int(p1.number_input("Page", 1, pages, 1, key=f"ex_page_{len(view)}"))
     start = (page - 1) * EXPLORER_PAGE_SIZE
     chunk = view.iloc[start:start + EXPLORER_PAGE_SIZE]
-    p2.caption(f"{len(view)} of {len(df)} posts · newest first · showing {start + 1 if len(view) else 0}–"
-               f"{start + len(chunk)} · page {page} of {pages}")
+    p2.caption(f"{len(view)} of {len(df)} posts · {start + 1 if len(view) else 0}–{start + len(chunk)}")
     if view.empty:
-        st.info("No posts match these filters.")
+        st.info("Nothing matches.")
         return
-    if as_table:
-        st.dataframe(
-            chunk.assign(cause=chunk["primary_reason"].map(labels))[
-                ["item_id", "published", "source", "cohort", "cause", "behaviour", "quote_check", "in_golden",
-                 "post_snippet", "url"]
-            ].rename(columns={"item_id": "ID", "published": "Published", "source": "Source", "cohort": "Group",
-                              "cause": "Inferred cause", "behaviour": "Behaviour", "quote_check": "Quote check",
-                              "in_golden": "Golden set", "post_snippet": "Post", "url": "Link"}),
-            hide_index=True, width="stretch",
-            column_config={"Link": st.column_config.LinkColumn(display_text="open")},
-        )
-    else:
-        for _, p in chunk.iterrows():
-            render_post_card(p)
-    st.download_button("Download the filtered posts (CSV)",
-                       view.drop(columns=[c for c in view.columns if c.startswith(("t_", "_"))]).to_csv(index=False),
-                       file_name="evidence_filtered.csv")
+    for _, p in chunk.iterrows():
+        render_post_card(p)
 
 
 def render_discovery_tab(df: pd.DataFrame) -> None:
@@ -916,19 +908,7 @@ def render_overview(df: pd.DataFrame) -> None:
     a, f = focus["all"], focus["ft"]
     c1, c2 = st.columns(2)
     with c1.container(border=True):
-        st.markdown("#### Problem 1 · Failed payments")
-        st.markdown(f"*{P1_STATEMENT}*")
-        k1, k2 = st.columns(2)
-        k1.metric("Share of stop posts", f"{f['payment_pct']:.0f}%",
-                  help=f"First-time investors; {a['payment_pct']:.0f}% among all investors")
-        k2.metric("Est. uplift", f"+{f['payment']:.1f} pp",
-                  help=f"On the 12-month active-SIP rate of first-time investors; +{a['payment']:.1f} pp for all")
-        if dec:
-            st.markdown(f"- **Interviews:** {dec['failed_any']} of {dec['n']} had a failed instalment, found only "
-                        "by opening the app; none stopped because of it.")
-        st.markdown("- **Decision:** parallel track — an operations fix (setup tracking, failure reasons, retries).")
-    with c2.container(border=True):
-        st.markdown("#### Problem 2 · The stop decision")
+        st.markdown("#### Problem 1 · The stop decision")
         st.markdown(f"*{P2_STATEMENT}*")
         k1, k2 = st.columns(2)
         k1.metric("Share of stop posts", f"{f['stop_moment_pct']:.0f}%",
@@ -939,49 +919,37 @@ def render_overview(df: pd.DataFrame) -> None:
             st.markdown(f"- **Interviews:** {dec['stop_n']} of {dec['n']} describe a stop decision as the moment "
                         "their SIP was at risk.")
         st.markdown("- **Decision:** research and MVP focus — neutral support for judging one's own SIP.")
-
-    if dec:
-        st.success(
-            f"**Focus decision: {dec['verdict'].lower()}.** Public posts rank failed payments higher "
-            f"(+{a['payment']:.1f} vs +{a['stop_moment']:.1f} pp), but {dec['stop_n']} of {dec['n']} interviewees "
-            "describe a stop decision, and that is where an AI feature can help without giving advice. "
-            "Details in **Problem validation**."
-        )
-
-    with st.expander("Limitations to keep in mind"):
-        st.markdown(
-            f"""
-- **Public posts are not a random sample.** {round((df['source'] == 'Reddit').mean() * 100)}% come from Reddit;
-  app-store reviews and YouTube comments rarely state age or experience, so few pass the first-time filter.
-- **Shares are of posts, not of investors.** Uplift estimates combine post shares with fixed assumptions
-  (40% of first SIPs lapse by month 12, 30% of each cause is recoverable) — replace them with Groww cohort data.
-- **Five interviews** from my network, chosen for being at risk: they show what the moment looks like, not how
-  common it is.
-- Every claim links to source posts; **How it works & evidence** shows how posts were selected and checked.
-"""
-        )
+    with c2.container(border=True):
+        st.markdown("#### Problem 2 · Failed payments")
+        st.markdown(f"*{P1_STATEMENT}*")
+        k1, k2 = st.columns(2)
+        k1.metric("Share of stop posts", f"{f['payment_pct']:.0f}%",
+                  help=f"First-time investors; {a['payment_pct']:.0f}% among all investors")
+        k2.metric("Est. uplift", f"+{f['payment']:.1f} pp",
+                  help=f"On the 12-month active-SIP rate of first-time investors; +{a['payment']:.1f} pp for all")
+        if dec:
+            st.markdown(f"- **Interviews:** {dec['failed_any']} of {dec['n']} had a failed instalment, found only "
+                        "by opening the app; none stopped because of it.")
+        st.markdown("- **Decision:** parallel track — an operations fix (setup tracking, failure reasons, retries).")
 
 
 def _interview_findings(tally: pd.DataFrame, dec: dict) -> list[str]:
     """One finding per row of interview_hypotheses(), in the same order as interviews.HYPOTHESES (H1–H6)."""
     n = dec["n"]
     return [
-        f"{tally.at['H1', 'Confirms (+)']} of {n} judged only by red / green against a one-year expectation or "
-        "short-term goal",
-        f"{tally.at['H2', 'Confirms (+)']} of {n} asked for peer stats; doubt was settled by a trusted person "
-        "(colleague, cousin, YouTuber), not by data",
-        f"{tally.at['H3', 'New insight (!)']} of {n} moved money outside SIPs (FD / RD, lump sum, gold scheme): still "
-        "investing, but lost to the metric",
-        "No one stopped for lack of cash; a low balance caused one skipped instalment",
-        f"{dec['failed_any']} of {n} had a failed instalment, found only by opening the app; neither stopped over "
-        f"it. {dec['account_change']} changed job or salary account with no mandate problem",
-        "Return metrics confused some (one used an LLM for XIRR), but a product rule (ELSS per-instalment "
-        "lock-in) caused one stop",
+        f"{tally.at['H1', 'Confirms (+)']} of {n} only looked at red or green against what they hoped for in a year",
+        f"{tally.at['H2', 'Confirms (+)']} of {n} asked someone they trust (colleague, cousin, YouTuber), not the app",
+        f"{tally.at['H3', 'New insight (!)']} of {n} moved the money to FD / RD, a lump sum or gold — still investing, "
+        "just not in this SIP",
+        "Nobody stopped because they were short of cash. One person skipped a month after a low balance",
+        f"{dec['failed_any']} of {n} had a failed instalment and only saw it in the app. Nobody stopped over it. "
+        f"{dec['account_change']} changed job or salary account with no mandate issue",
+        "Numbers confused a couple of people (one used ChatGPT for XIRR). One stop was an ELSS lock-in rule, not returns",
     ]
 
 
 def render_decomposition_tab(df: pd.DataFrame) -> None:
-    st.subheader("Metric decomposition: where 12-month SIP continuation breaks")
+    st.subheader("Where a first SIP is lost by month 12")
     lapse = st.session_state["lapse_rate"] / 100
     recovery = st.session_state["recovery_rate"] / 100
     overrides = _overrides_from_state()
@@ -992,40 +960,47 @@ def render_decomposition_tab(df: pd.DataFrame) -> None:
     dec = decision(sc) if not sc.empty else None
 
     with st.container(border=True):
-        st.markdown(NORTH_STAR)
-        st.markdown("**What the definition implies**\n" + "\n".join(f"- {m}" for m in METRIC_MECHANICS))
+        st.markdown(
+            "Groww's number: **share of first-time mutual fund investors who still have an SIP running 12 months "
+            "after they started.** Running means at least one instalment went through in the last 30 days."
+        )
+        st.markdown("\n".join(f"- {m}" for m in METRIC_MECHANICS))
 
-    st.markdown("#### 1 · The metric breaks down into five product outcomes")
+    st.markdown("#### 1 · Five places it can fall over")
     st.markdown(
-        "A first SIP is active at month 12 only if it was **activated**, every instalment **went through** (A), a "
-        "pause or cash squeeze **didn't become a stop** (B), the investor **kept choosing to continue** (C) and "
-        "could **tell it was working** (D) — or a lapse was **recovered** within 30 days."
+        "The first SIP has to get set up. Then the debit has to go through every month. If they pause because "
+        "cash is tight, they need a way back. If they open cancel because the number looks red, they need a way "
+        "to judge. If they can't read the returns screen, they drift. A successful debit within 30 days still "
+        "brings them back from any of those."
     )
     st.image(tree_svg(sizes, focus, lapse), width="stretch")
     st.download_button("Download as slide (SVG)", tree_svg(sizes, focus, lapse, title=slide_title(focus, dec)),
                        file_name="metric_decomposition.svg", mime="image/svg+xml")
 
-    st.markdown("#### 2 · Product outcomes, the behaviours behind them, and how to measure them")
+    st.markdown("#### 2 · What has to happen, and what I would watch")
     st.table(
         pd.DataFrame([{
             "Branch": b.name if b.code == "0" else f"{b.code} · {b.name}",
-            "Product outcome": b.outcome,
-            "User behaviours that drive it": " · ".join(b.behaviours),
-            "Leading indicator": b.leading,
-            "Groww data to confirm": b.groww_data,
-            "Opportunity areas": ", ".join(OPP_SHORT[c] for c in b.opportunities) or "—",
+            "What has to be true": b.outcome,
+            "What people do": " · ".join(b.behaviours),
+            "Number to watch": b.leading,
+            "What Groww can pull": b.groww_data,
+            "Where to work": ", ".join(OPP_SHORT[c] for c in b.opportunities) or "—",
         } for b in BRANCHES] + [{
-            "Branch": "Recovery", "Product outcome": RECOVERY[0].split(": ", 1)[1].capitalize(),
-            "User behaviours that drive it": "Notices the lapse · pays the missed instalment · repairs the mandate",
-            "Leading indicator": RECOVERY[1], "Groww data to confirm": "Days from lapse to next successful instalment",
-            "Opportunity areas": OPP_SHORT["payment_reliability"],
+            "Branch": "Recovery",
+            "What has to be true": RECOVERY[0].split(": ", 1)[1].capitalize(),
+            "What people do": "Notices the miss · pays it · repairs the mandate",
+            "Number to watch": RECOVERY[1],
+            "What Groww can pull": "Days from lapse to the next successful instalment",
+            "Where to work": OPP_SHORT["payment_reliability"],
         }]).set_index("Branch"),
     )
 
-    st.markdown("#### 3 · Where the lapse comes from: all investors vs first-time investors")
+    st.markdown("#### 3 · How the 12-month drop splits")
     st.markdown(
-        f"Each branch's share of the assumed **{lapse * 100:.0f}% of first SIPs that lapse by month 12**, split by "
-        "the primary cause of posts about stopping."
+        f"I don't have Groww's cohort file, so I take **{lapse * 100:.0f}% of first SIPs as gone by month 12** "
+        "(sidebar) and split that using the reason people named when they wrote about stopping. "
+        "Orange is first-timers."
     )
     sized = sizes
     groups = [f"All investors (n={a['risk_n']})", f"First-time (n={f['risk_n']})"]
@@ -1053,61 +1028,66 @@ def render_decomposition_tab(df: pd.DataFrame) -> None:
         "pp of lapse (first-time)", "Est. uplift pp (all)", "Est. uplift pp (first-time)"]])
     if f["risk_n"] < SMALL_SAMPLE:
         st.warning(
-            f"**Small sample:** only {f['risk_n']} posts about stopping come from first-time investors "
-            "(they mostly post about starting). The first-time split is a hypothesis for interviews and Groww "
-            "cohort data, not a measurement."
+            f"Only {f['risk_n']} stop posts are from first-timers — they mostly write about starting. "
+            "Treat the orange bars as a hint to take to interviews and Groww data, not a count of users."
         )
 
-    st.markdown("#### 4 · Where the highest-potential opportunity lies")
+    st.markdown("#### 4 · Two problems. I built on the stop decision.")
     c1, c2 = st.columns(2)
     with c1.container(border=True):
-        st.markdown("**Activation + A · Failed payments** (first instalment and later ones)")
+        st.markdown("**Problem 1 · The stop decision** (pause, skip, reduce, cancel, switch)")
         m1, m2 = st.columns(2)
-        m1.metric("First-time", f"+{f['payment']:.2f} pp", help="Est. uplift for first-time investors")
-        m2.metric("All investors", f"+{a['payment']:.2f} pp", help="Est. uplift for all investors")
+        m1.metric("First-time", f"+{f['stop_moment']:.1f} pp", help="If this cause were fixed, for first-time investors")
+        m2.metric("All investors", f"+{a['stop_moment']:.1f} pp", help="If this cause were fixed, for all investors")
         st.markdown(
-            f"- {a['payment_pct']:.0f}% of posts about stopping overall, {f['payment_pct']:.0f}% among first-time "
-            "investors — for first-timers, many are a first SIP that never went live (KYC, mandate setup, first "
-            "order rejected).\n"
-            "- Mostly a payments-and-operations fix (setup tracking, retries, mandate repair, failure reasons); AI "
-            "adds little.\n"
-            + (f"- **Decision: parallel track.** The risky moment in {dec['pay_n']} of {dec['n']} interviews; "
-               f"{dec['failed_any']} had a failed instalment, found only by opening the app. Size it with Groww "
-               "debit-return data." if dec else "- **Decision: pending the interviews.**")
+            f"- {a['stop_moment_pct']:.0f}% of stop posts overall, {f['stop_moment_pct']:.0f}% among first-timers. "
+            "They all meet on one screen: pause / cancel.\n"
+            "- They need their own numbers explained, not a fund pick. That's where a short AI reply can help "
+            "without becoming advice.\n"
+            + (f"- **I built the MVP here.** {dec['stop_n']} of {dec['n']} interviews: the SIP was at risk "
+               "because they decided to stop."
+               if dec else "- Interviews still to land.")
         )
     with c2.container(border=True):
-        st.markdown("**B + C · The stop moment** (pause, reduce, skip, stop or switch)")
+        st.markdown("**Problem 2 · Failed payments** (first debit and later ones)")
         m1, m2 = st.columns(2)
-        m1.metric("First-time", f"+{f['stop_moment']:.2f} pp", help="Est. uplift for first-time investors")
-        m2.metric("All investors", f"+{a['stop_moment']:.2f} pp", help="Est. uplift for all investors")
+        m1.metric("First-time", f"+{f['payment']:.1f} pp", help="If this cause were fixed, for first-time investors")
+        m2.metric("All investors", f"+{a['payment']:.1f} pp", help="If this cause were fixed, for all investors")
         st.markdown(
-            f"- Four opportunity areas meet on one screen — when the investor opens the pause / stop controls: "
-            f"{a['stop_moment_pct']:.0f}% of posts about stopping overall, {f['stop_moment_pct']:.0f}% among "
-            "first-time investors.\n"
-            "- The decision needs the investor's own context (goal, horizon, what is normal) explained neutrally — "
-            "where an AI feature can earn its place without giving advice.\n"
-            + (f"- **Decision: MVP focus.** The risky moment in {dec['stop_n']} of {dec['n']} interviews."
-               if dec else "- **Decision: pending the interviews.**")
+            f"- {a['payment_pct']:.0f}% of stop posts overall, {f['payment_pct']:.0f}% among first-timers. "
+            "A lot of the first-timer ones never went live (KYC, mandate, first order bounced).\n"
+            "- This is ops: tell them why it failed, retry, repair the mandate. AI doesn't add much.\n"
+            + (f"- **Not the MVP.** {dec['pay_n']} of {dec['n']} interviews stopped over a failed debit. "
+               f"{dec['failed_any']} had one, and only saw it in the app. Size it with Groww debit-return data."
+               if dec else "- Interviews still to land.")
         )
-    ft_small = " (small sample)" if f["risk_n"] < SMALL_SAMPLE else ""
-    settled = (f"The interviews settled it: {dec['stop_n']} of {dec['n']} risky moments were stop decisions and "
-               f"{dec['pay_n']} a failed instalment, so the decision is to **{dec['verdict'].lower()}**." if dec else
-               "The interviews decide between the two.")
+    ft_small = " — small set" if f["risk_n"] < SMALL_SAMPLE else ""
+    if dec:
+        wrap = (f"{dec['stop_n']} of {dec['n']} interviews were a stop decision, "
+                f"{dec['pay_n']} a failed instalment. That's why I built on cancel.")
+    else:
+        wrap = "Interviews decide which of these I build on."
     st.info(
-        f"**How the two bets compare:** across all posts, {lead_phrase(a['stop_moment'], a['payment'])}; in "
-        f"first-time investors' own posts ({f['risk_n']} about stopping{ft_small}), "
-        f"{lead_phrase(f['stop_moment'], f['payment'])}. Posts can't show which moment ends a first SIP. {settled}"
+        f"On public posts, {lead_phrase(a['stop_moment'], a['payment'])}. "
+        f"In first-timer posts ({f['risk_n']} about stopping{ft_small}), "
+        f"{lead_phrase(f['stop_moment'], f['payment'])}. "
+        f"Posts don't tell you which moment actually ends a first SIP. {wrap}"
     )
 
-    st.markdown("#### 5 · What the interviews found, branch by branch")
+    st.markdown("#### 5 · What I took into interviews")
     hyp = interview_hypotheses(golden_signals()).drop(columns="Interview probe")
     if dec:
         tally = hypothesis_tally(sc).set_index("ID")
-        hyp["What the interviews found"] = _interview_findings(tally, dec)
+        hyp["What people said"] = _interview_findings(tally, dec)
         hyp["Verdict"] = list(tally["Verdict"])
-        hyp = hyp.rename(columns={"Evidence so far": "Evidence from posts"})
+        hyp = hyp.rename(columns={"Hypothesis": "What I thought", "Evidence so far": "From posts"})
+    else:
+        hyp = hyp.rename(columns={"Hypothesis": "What I thought", "Evidence so far": "From posts"})
     st.table(hyp.set_index("Branch").rename_axis(None))
-    st.caption("Sizes assume 40% of first SIPs lapse by month 12 and 30% of each cause is recoverable.")
+    st.caption(
+        f"Bars assume {lapse * 100:.0f}% of first SIPs are gone by month 12 and {recovery * 100:.0f}% of each "
+        "cause can come back. Change those in the sidebar."
+    )
 
 
 def _quote_list(quotes: list[dict[str, str]]) -> None:
@@ -1117,10 +1097,9 @@ def _quote_list(quotes: list[dict[str, str]]) -> None:
 
 
 def _payment_subcauses(t: pd.DataFrame) -> None:
-    st.markdown("**Payment posts by sub-cause (one cause per post)**")
+    st.markdown("**Why the payment failed, as far as the text says**")
     st.caption(
-        "Each payment-tagged post gets the first sub-cause its text matches; explicit causes are checked before "
-        "stages and catch-alls. 'Sized posts' are the posts about stopping that feed the opportunity sizing."
+        "One cause per post, first match in the text. Sized posts are the ones about stopping that go into the bars."
     )
     cols = ["First-time, sized", "Sized posts (at risk)", "All payment-tagged"]
     view = t[["Group", "Sub-cause", "In my original list"]].copy()
@@ -1134,53 +1113,45 @@ def _payment_subcauses(t: pd.DataFrame) -> None:
     unknown = t[t["Sub-cause"] == "Failed, no reason given"]
     ft, sized = "First-time, sized", "Sized posts (at risk)"
     st.markdown(
-        f"- **My original causes** (low balance, old or changed account, server / gateway down) explain "
-        f"{int(mine[sized].sum())} of {int(t[sized].sum())} sized posts and {int(mine[ft].sum())} of "
-        f"{int(t[ft].sum())} first-time ones.\n"
-        f"- **The first SIP never going live** (KYC, mandate setup, first order rejected) is "
-        f"{int(live[ft].sum())} of {int(t[ft].sum())} first-time sized posts — a cause missing from my list, and "
-        "it sits on the *Activation* branch, not *Involuntary lapse*.\n"
-        f"- **{unknown[f'{sized} %'].iloc[0]}%** of sized posts report a failure with no reason — the "
-        "silent-failure problem is bigger than any single cause.\n"
-        f"- **{no_fail[f'{sized} %'].iloc[0]}%** of sized posts describe no failure at all (questions about how autopay "
-        "works): the payment rule still over-counts, so the payment uplift is an upper bound."
+        f"- The three causes I started with (low balance, old account, gateway down) cover "
+        f"{int(mine[sized].sum())} of {int(t[sized].sum())} sized posts, and {int(mine[ft].sum())} of "
+        f"{int(t[ft].sum())} first-timer ones.\n"
+        f"- A first SIP that never went live (KYC, mandate, first order bounced) is "
+        f"{int(live[ft].sum())} of {int(t[ft].sum())} first-timer sized posts. That wasn't on my list. It's a setup "
+        "problem, not a later miss.\n"
+        f"- **{unknown[f'{sized} %'].iloc[0]}%** of sized posts say it failed and give no reason. That's bigger than "
+        "any one cause I named.\n"
+        f"- **{no_fail[f'{sized} %'].iloc[0]}%** don't describe a failure at all (how does autopay work?). So the "
+        "payment bar is an upper bound."
     )
 
 
 HYPOTHESIS_P1 = (
-    "**My hypothesis:** many SIPs end without the investor choosing it, because an instalment fails. I think it "
-    "fails for one of three reasons:\n"
-    "1. Groww's systems or the payment gateway are down on the debit date.\n"
-    "2. The bank account behind the autopay doesn't have enough money on that day.\n"
-    "3. The autopay is still set on an old bank account the investor no longer uses (for example after a job "
-    "change), and they never updated it in Groww."
+    "**What I thought:** a lot of SIPs die without anyone choosing to stop. The debit fails because Groww or the "
+    "gateway is down, the account is short that day, or autopay is still on an old salary account after a job change."
 )
 HYPOTHESIS_P2 = (
-    "**My hypothesis:** other investors stop their SIP on purpose. I think they do it for one of three reasons:\n"
-    "1. They picked a fund without understanding it (its type, lock-in period or costs such as the expense "
-    "ratio) and stop when they find out.\n"
-    "2. The market keeps falling, the money they put in shows a loss, and they stop.\n"
-    "3. They put extra cash in during a fall to average out the loss, the market keeps falling, and with no "
-    "cash left they stop."
+    "**What I thought:** people stop on purpose for one of three reasons. They didn't understand the fund. The "
+    "market keeps falling so they see a loss. Or they put extra money in during the fall, it keeps falling, and they stop."
 )
 
 
 def _p1_interviews(sc: pd.DataFrame, dec: dict) -> None:
     failed = sc[sc["failed_instalment"].str.startswith("yes")]
     changed = sc[sc["account_change"].str.startswith("yes")]
-    st.markdown(f"#### What the {dec['n']} interviews show")
+    st.markdown(f"#### What {dec['n']} people told me")
     c1, c2, c3 = st.columns(3)
-    c1.metric("Risky moment: payment", f"{dec['pay_n']} of {dec['n']}", help="Participants whose risky moment was a failed instalment")
-    c2.metric("Had a failure", f"{len(failed)} of {dec['n']}", help="Had a failed instalment at some point")
-    c3.metric("Changed account", f"{len(changed)} of {dec['n']}", help="Changed job or salary account since starting")
+    c1.metric("Stopped over a failed debit", f"{dec['pay_n']} of {dec['n']}")
+    c2.metric("Had a failure at some point", f"{len(failed)} of {dec['n']}")
+    c3.metric("Changed job or salary account", f"{len(changed)} of {dec['n']}")
     found = " · ".join(f"{r.participant}: {r.failed_instalment[5:-1]}" for r in failed.itertuples())
     st.markdown(
-        f"- **Failures were found only by opening the app** ({found}). No one remembered a notification, and "
-        "neither stopped over it: the *aren't told why* part of the problem.\n"
-        f"- **Job or salary-account change:** {', '.join(changed['participant'])} changed, with no mandate problem "
-        "reported. My job-change cause isn't seen here either; it needs Groww's bank-return data.\n"
-        f"- **First SIP never going live:** can't be seen here. Every participant's SIP had been running for "
-        f"{sc['months_since_start'].astype(int).min()}+ months, so this part rests on posts alone."
+        f"- They only found the failure by opening the app ({found}). Nobody remembered a notification, and nobody "
+        "stopped over it.\n"
+        f"- {', '.join(changed['participant'])} changed job or salary account. No mandate problem. So my job-change "
+        "story isn't in this set either — I need Groww's bank-return file for that.\n"
+        f"- Everyone here had been running for {sc['months_since_start'].astype(int).min()}+ months, so a first SIP "
+        "that never went live can't show up. That part is posts only."
     )
 
 
@@ -1203,48 +1174,48 @@ def _problem_metrics(focus: dict, key: str, interviews: int | None, dec: dict | 
 def _problem_mandate(m: dict, focus: dict, sc: pd.DataFrame, dec: dict | None) -> None:
     o = m["opp"]
     with st.container(border=True):
-        st.markdown("### Problem 1 · Failed payments: SIPs investors meant to keep")
+        st.markdown("### Problem 2 · Failed payments")
         st.markdown(HYPOTHESIS_P1)
         st.markdown("#### What the posts show")
         v1, v2 = st.columns(2)
-        v1.success(f"**Problem area — strongly supported.** Payment and mandate failures are the #{o['rank']} "
-                   f"cause of SIPs ending in public posts.")
-        v2.warning(f"**Specific cause (job change → new salary account) — not visible in public posts.** "
-                   f"{m['job_change_with_mandate']} post links a job change to a mandate; "
-                   f"{m['bank_change_with_mandate']} mention a bank-account change. Validate with Groww data.")
+        v1.success(f"**The area is real.** Failed payments are the #{o['rank']} reason SIPs end in public posts.")
+        v2.warning(
+            f"**The job-change story is not in the posts.** {m['job_change_with_mandate']} post links a job "
+            f"change to a mandate; {m['bank_change_with_mandate']} mention a bank-account change. I need Groww's "
+            "debit-return file for that."
+        )
         _problem_metrics(focus, "payment", dec["pay_n"] if dec else None, dec,
                          "failed payment (first SIP never going live, or a later instalment failing)")
 
         left, right = st.columns([3, 2])
         with left:
-            st.markdown("**What users actually report when the payment fails**")
+            st.markdown("**What they write when a payment fails**")
             st.bar_chart(m["reports"].set_index("What users report")["Posts"], horizontal=True, y_label="",
                          x_label="Posts", color=BRAND)
             table_view(m["reports"])
         with right:
-            st.markdown("**Reading the chart**")
+            st.markdown("**How I read this**")
             unstated = m["reports"].iloc[-1]["% of payment-failure posts"]
             st.markdown(
-                f"- **{unstated}%** of failure posts can't say *why* it failed — the app doesn't tell them.\n"
-                "- Repeated autopay failures and mandates cancelled *without the user's action* dominate.\n"
-                "- Bank-account change is rare in public posts — but job changers may simply never post; "
-                "this needs Groww's own debit-return data."
+                f"- **{unstated}%** of failure posts can't say why it failed. The app didn't tell them.\n"
+                "- The common story is autopay failing again and again, or the mandate getting cancelled without them doing it.\n"
+                "- Bank-account change is rare here. People who changed jobs may just never post."
             )
 
         _payment_subcauses(m["subcauses"])
 
         e1, e2 = st.columns(2)
         with e1:
-            st.markdown("**Evidence for**")
+            st.markdown("**In their words**")
             _quote_list(m["quotes"])
         with e2:
-            st.markdown("**Evidence against / gaps**")
+            st.markdown("**What this set can't show**")
             st.markdown(
                 f"- Only **{m['job_change_with_mandate']}** post connects a job change with a mandate "
                 f"({m['job_change_any']} mention a job change at all).\n"
-                f"- Only **{m['first_timer_n']} of {m['area_n']}** failure posts come from first-time "
-                "investors — first-timers rarely post about it, so this rests on the comparison group.\n"
-                "- Public posts over-represent people who noticed the failure; silent lapses are invisible here."
+                f"- Only **{m['first_timer_n']} of {m['area_n']}** failure posts are from first-timers. They rarely "
+                "write about this, so the size comes from the comparison group.\n"
+                "- People who never noticed the failure don't post. Silent lapses are missing."
             )
             if m["mechanism_quotes"]:
                 st.markdown("Closest example of the bank-account case:")
@@ -1253,30 +1224,24 @@ def _problem_mandate(m: dict, focus: dict, sc: pd.DataFrame, dec: dict | None) -
         if dec:
             _p1_interviews(sc, dec)
 
-        st.markdown("#### Conclusion → problem statement and solution")
-        st.info(
-            f"**Problem statement:** {P1_STATEMENT}"
-        )
+        st.markdown("#### What I would build (ops, not the MVP)")
+        st.info(f"**The problem:** {P1_STATEMENT}")
         s1, s2 = st.columns(2)
         with s1:
             st.markdown(
-                "**Solution direction**\n"
-                "1. Detect every failed or revoked mandate and tell the user the reason in plain language "
-                "(insufficient balance, account closed, mandate cancelled by bank).\n"
-                "2. One-tap recovery: *pay this instalment now* or automatic retry before the 30-day window ends.\n"
-                "3. *Change bank account* and re-register the mandate inside the same flow — this covers the "
-                "job-change case without depending on it.\n"
-                "4. When the bank returns *account closed*, prompt to add the new account before the next date."
+                "**If Groww built this**\n"
+                "1. Tell them why it failed, in plain words (short of money, account closed, bank cancelled it).\n"
+                "2. Let them pay this instalment now, or retry before 30 days are up.\n"
+                "3. Change bank account and set up autopay in the same flow.\n"
+                "4. If the bank says the account is closed, ask for the new one before the next date."
             )
         with s2:
             st.markdown(
-                "**Validate with Groww data before building**\n"
-                "- % of first-time SIP lapses preceded by a failed instalment.\n"
-                "- Mix of bank return reasons (account closed vs insufficient funds vs mandate cancelled) — "
-                "*account closed* is the proxy for the job-change hypothesis.\n"
-                "- % of failed SIPs that never get another successful instalment.\n\n"
-                "**Success metrics:** failed-instalment recovery within 7 days (leading); "
-                "12-month active-SIP rate of first-time investors (goal)."
+                "**What I'd ask Groww for**\n"
+                "- Of first-timer lapses, how many had a failed debit just before?\n"
+                "- Why did the bank send it back (closed vs no money vs mandate cancelled)?\n"
+                "- After a fail, how many never get another successful debit?\n\n"
+                "**If it worked:** more failed instalments recovered in 7 days, and a higher 12-month active rate."
             )
 
 
@@ -1303,18 +1268,17 @@ def _deliberate_research(df: pd.DataFrame) -> None:
     unsure = int(base["status"].eq("running_considering_stop").sum())
     acted = int(base["status"].isin(["stopped", "stopped_and_switched", "paused_or_reduced"]).sum())
     new = int(base["query_branch"].eq("deliberate_stop").sum())
-    st.markdown("#### Research base: stopping on purpose")
+    st.markdown("#### Extra search: people who meant to stop")
     st.markdown(
-        f"A separate search on Reddit, TradingQ&A, YouTube, the Play Store and the App Store looked for people who "
-        f"**stopped a SIP on purpose**: a market fall, flat or low returns, moving to another asset, or frustration "
-        f"with averaging. **{len(cand)} posts** were collected (capped at 200). The same filters as the rest of the "
-        f"corpus — about SIPs, the author's own experience, not a duplicate — kept **{len(base)}**. "
-        f"{len(base) - new} of those were already in the corpus; **{new} are new**. **{dropped}** were dropped."
+        f"I also searched Reddit, TradingQ&A, YouTube, Play Store and App Store for people who **chose** to stop: "
+        f"a fall, flat returns, moving the money, or averaging that went wrong. **{len(cand)} posts** (capped at 200). "
+        f"Same filters as the rest — their own SIP, not a duplicate — kept **{len(base)}**. "
+        f"{len(base) - new} were already in the main set; **{new} are new**. **{dropped}** were dropped."
     )
     st.markdown(
-        f"Of the {len(base)} kept: **{running}** are still running with no doubt, **{unsure}** are unsure whether to "
-        f"stop, and **{acted}** have stopped, paused or moved the money. Most of this set is the moment of doubt or a "
-        "switch to another fund, which is the Problem 2 moment, rather than a finished exit caused by the fall alone."
+        f"Of the {len(base)} kept: **{running}** are still going with no doubt, **{unsure}** are unsure, and "
+        f"**{acted}** have stopped, paused or moved the money. Most of this set is the doubt moment or a switch — "
+        "not a finished exit caused by the fall alone."
     )
     c1, c2 = st.columns(2)
     with c1:
@@ -1328,60 +1292,63 @@ def _deliberate_research(df: pd.DataFrame) -> None:
 def _problem_panic(p: dict, focus: dict, sc: pd.DataFrame, dec: dict | None, df: pd.DataFrame) -> None:
     o = p["opp"]
     with st.container(border=True):
-        st.markdown("### Problem 2 · The stop decision: no way to judge their own SIP")
+        st.markdown("### Problem 1 · The stop decision")
         st.markdown(HYPOTHESIS_P2)
-        st.info(f"**Problem statement:** {P2_STATEMENT}")
+        st.info(f"**What I now think the problem is:** {P2_STATEMENT}")
         st.markdown("#### What the posts show")
         v1, v2 = st.columns(2)
-        v1.success(f"**Market falls create doubt — supported.** {p['fall_n']} posts discuss a fall, "
-                   f"{p['fall_first_timer_n']} of them from first-time investors.")
+        v1.success(
+            f"**A fall makes people wonder.** {p['fall_n']} posts talk about a fall, "
+            f"{p['fall_first_timer_n']} of them from first-timers."
+        )
         separates = p["pct_fall_risk"] > p["pct_fall_cont"] * 1.3
         (v2.success if separates else v2.warning)(
-            f"**{'Falls do separate drop-offs' if separates else 'Panic is not what separates drop-offs'}.** "
-            f"A fall is mentioned in {p['pct_fall_risk']}% of posts about stopping vs {p['pct_fall_cont']}% of "
-            "continuers."
+            f"**{'Falls show up more in stop posts' if separates else 'Panic is not what splits stop vs continue'}.** "
+            f"A fall is in {p['pct_fall_risk']}% of stop posts vs {p['pct_fall_cont']}% of people who kept going."
         )
         _problem_metrics(focus, "stop_moment", dec["stop_n"] if dec else None, dec,
                          "stop decision (pause, reduce, skip, stop or switch)")
         f = focus["ft"]
         st.caption(
-            f"Continuers mention the stop moment as often as stoppers ({f['stop_moment_cont_pct']}% vs "
-            f"{f['stop_moment_pct']}%): doubt is common to both; what differs is what they do next. Market falls: "
-            f"{p['fall_n']} posts discuss one, {p['fall_stop_n']} of them consider stopping, pausing or selling, and "
-            f"{p['asks_others_n']} ask others what to do (e.g. 'are you guys still continuing your SIPs?')."
+            f"People who kept going mention the stop screen as often as people who stopped "
+            f"({f['stop_moment_cont_pct']}% vs {f['stop_moment_pct']}%). The doubt is shared. What differs is "
+            f"what they do next. {p['fall_n']} posts mention a fall; {p['fall_stop_n']} of those think about "
+            f"stopping, pausing or selling; {p['asks_others_n']} ask others ('are you guys still continuing?')."
         )
 
         left, right = st.columns([3, 2])
         with left:
-            st.markdown("**How often each group mentions a market fall**")
+            st.markdown("**How often each group mentions a fall**")
             st.bar_chart(p["by_group"].set_index("Group")["% mentioning a market fall"], horizontal=True,
                          y_label="", x_label="% of the group's posts", color=BRAND)
             table_view(p["by_group"])
         with right:
-            st.markdown("**Reading the chart**")
+            st.markdown("**How I read this**")
             st.markdown(
-                (f"- Continuers mention falls as often or more ({p['pct_fall_cont']}% vs {p['pct_fall_risk']}%) — "
-                 "falls alone don't end SIPs.\n" if not separates else
+                (f"- People who kept going mention falls as often or more ({p['pct_fall_cont']}% vs "
+                 f"{p['pct_fall_risk']}%). A fall by itself doesn't end the SIP.\n" if not separates else
                  f"- Falls are more common among people who stop ({p['pct_fall_risk']}% vs {p['pct_fall_cont']}%).\n")
-                + "- What differs is having a way to judge whether *my* SIP is on track; without it, people ask "
-                "strangers and act on the answer.\n"
-                f"- The 'should I stop?' doubt opportunity covers {o['pct_risk']}% of posts about stopping."
+                + "- What they don't have is a way to tell if *their* SIP is okay. So they ask someone and do "
+                "what that person says.\n"
+                f"- {o['pct_risk']}% of stop posts are this should-I-stop moment."
             )
 
         e1, e2 = st.columns(2)
         with e1:
-            st.markdown("**Evidence for**")
+            st.markdown("**In their words**")
             _quote_list(p["quotes_for"])
         with e2:
-            st.markdown("**Evidence against**")
+            st.markdown("**The other side**")
             _quote_list(p["quotes_against"])
 
         _deliberate_research(df)
 
         if dec:
-            st.markdown(f"#### What the {dec['n']} interviews show")
-            st.markdown(f"The risky moment was a stop decision for **{dec['stop_n']} of {dec['n']}** participants. "
-                        "Each part of the problem statement, and who it comes from:")
+            st.markdown(f"#### What {dec['n']} people told me")
+            st.markdown(
+                f"**{dec['stop_n']} of {dec['n']}** — the SIP was at risk because they decided to stop. "
+                "Each line of the problem, and who it came from:"
+            )
             st.dataframe(
                 p2_evidence(sc),
                 hide_index=True,
@@ -1393,46 +1360,45 @@ def _problem_panic(p: dict, focus: dict, sc: pd.DataFrame, dec: dict | None, df:
                 },
             )
 
-        st.markdown("#### Solution")
+        st.markdown("#### What I built")
         s1, s2 = st.columns(2)
         with s1:
             st.markdown(
-                "**Solution direction — a neutral 'before you stop' sheet**\n"
-                "1. The user's own goal, horizon and progress.\n"
-                "2. A factual line on what their recent instalments bought (more units at lower prices).\n"
-                "3. What stopping changes for their goal — no fear framing.\n"
-                "4. Alternatives to cancelling: reduce, skip one month, change date."
+                "**A sheet before they cancel**\n"
+                "1. Their own goal, how long they've been in, and how it's doing.\n"
+                "2. A plain line on what the last instalments bought (more units when the price was down).\n"
+                "3. What stopping changes for that goal — no scare line.\n"
+                "4. Other than cancel: lower the amount, skip a month, move the date."
             )
         with s2:
             st.markdown(
-                "**Validate with Groww data before building**\n"
-                "- Cancellation rate of first-time SIPs in the 2 weeks after a >5% index fall vs normal weeks.\n"
-                "- Share of cancellations preceded by fund-page visits during the fall.\n"
-                "- A/B test the stop-flow sheet.\n\n"
-                "**Success metrics:** % of stop intents that become reduce / skip (leading); "
-                "90-day and 12-month active-SIP rate (goal)."
+                "**What I'd still check with Groww**\n"
+                "- Do first-timer cancels jump in the two weeks after a >5% index fall?\n"
+                "- How many of those people were on the fund page during the fall?\n"
+                "- A/B the sheet in the cancel flow.\n\n"
+                "**If it worked:** more people pick skip or reduce instead of cancel, and more SIPs still running at 90 days and 12 months."
             )
 
 
 def _interview_evidence(sc: pd.DataFrame, dec: dict) -> None:
     with st.container(border=True):
-        st.markdown("### Interviews · the focus decision")
+        st.markdown("### The five interviews")
         st.markdown(
             f"{dec['n']} first-time SIP investors, {sc['months_since_start'].astype(int).min()}–"
-            f"{sc['months_since_start'].astype(int).max()} months in, recruited from my network for having stopped, "
-            "reduced or considered stopping. Anonymised as P1–P5."
+            f"{sc['months_since_start'].astype(int).max()} months in. I recruited them from people I know who had "
+            "stopped, reduced, or thought about stopping. P1–P5."
         )
         c1, c2, c3 = st.columns(3)
         c1.metric("Interviews", dec["n"])
-        c2.metric("Risky moment: stop", f"{dec['stop_n']} of {dec['n']}", help="Participants whose risky moment was a stop decision")
-        c3.metric("Risky moment: payment", f"{dec['pay_n']} of {dec['n']}", help="Participants whose risky moment was a failed instalment")
-        st.success(
-            f"**Decision: {dec['verdict'].lower()}.** {dec['stop_n']} of {dec['n']} participants describe a stop "
-            f"decision as the moment their SIP was at risk and {dec['pay_n']} a failed instalment. The rule, written "
-            "before the interviews: keep the focus if at least 3 describe a stop decision."
+        c2.metric("At risk because they decided to stop", f"{dec['stop_n']} of {dec['n']}")
+        c3.metric("At risk because a debit failed", f"{dec['pay_n']} of {dec['n']}")
+        st.markdown(
+            f"**{dec['stop_n']} of {dec['n']}** were a stop decision. **{dec['pay_n']}** a failed debit. "
+            "The rule I wrote before talking to them: stay on the stop screen if at least 3 of 5 describe that moment. "
+            "That's what happened, so that's what I built."
         )
 
-        st.markdown("**Participants**")
+        st.markdown("**Who I spoke to**")
         st.table(sc.rename(columns={
             "participant": "Participant", "age_band": "Age band", "months_since_start": "Months in",
             "app": "App", "status_today": "Status today", "account_change": "Job / account change",
@@ -1440,7 +1406,7 @@ def _interview_evidence(sc: pd.DataFrame, dec: dict) -> None:
         })[["Participant", "Age band", "Months in", "App", "Status today", "Job / account change",
             "Failed instalment", "The moment it was at risk"]].set_index("Participant").rename_axis(None))
 
-        st.markdown("**Each participant's critical incident**")
+        st.markdown("**What happened, person by person**")
         for inc in critical_incidents(sc):
             with st.expander(f"{inc['participant']} · {inc['When'].rstrip('.')}"):
                 st.markdown(
@@ -1451,17 +1417,17 @@ def _interview_evidence(sc: pd.DataFrame, dec: dict) -> None:
                     f"- **What was missing:** {inc['What was missing']}"
                 )
         st.caption(
-            "Limits: 5 interviews from my network, selected for being at risk, so they show what the moment looks "
-            "like, not how common it is. P3 uses another app. Notes: user-research/notes/P1–P5.md."
+            "Five people from my network, chosen because they were at risk. This shows what the moment looks like, "
+            "not how common it is. P3 is on another app. Notes: user-research/notes/P1–P5.md."
         )
 
 
 def render_problem_validation_tab(df: pd.DataFrame) -> None:
-    st.subheader("Problem validation — the evidence behind each problem statement")
+    st.subheader("Did I have the right problem?")
     st.markdown(
-        f"Each problem is checked twice: in **{len(df)} coded public posts** (is it real, and what causes it?) and "
-        f"in **{len(load_scorecard())} user interviews** (what does the moment look like for a first-time investor?). Each section ends "
-        "in the problem statement and solution direction it leads to."
+        f"I checked each one in **{len(df)} public posts** (is it real?) and **{len(load_scorecard())} interviews** "
+        "(what does the moment look like?). Problem 1 is the stop decision — that's the MVP. Problem 2 is failed "
+        "payments — that's ops."
     )
     h = build_hypotheses(
         df, st.session_state["lapse_rate"] / 100, st.session_state["recovery_rate"] / 100, _overrides_from_state()
@@ -1471,46 +1437,46 @@ def render_problem_validation_tab(df: pd.DataFrame) -> None:
                              _overrides_from_state())
     sc = load_scorecard()
     dec = decision(sc) if not sc.empty else None
-    _problem_mandate(m, focus, sc, dec)
     _problem_panic(p, focus, sc, dec, df)
+    _problem_mandate(m, focus, sc, dec)
     if dec:
         _interview_evidence(sc, dec)
     else:
-        st.info("Interview scorecard not found (user-research/scorecard.csv): the focus decision is pending.")
+        st.info("Interview scorecard not found (user-research/scorecard.csv).")
 
     keep = bool(dec) and dec["verdict"] == "Keep the stop-moment focus"
-    interviews_p1 = (f"{dec['pay_n']} of {dec['n']} interviews; {dec['failed_any']} had a failure, none stopped "
-                     "over it" if dec else "Pending")
-    interviews_p2 = f"{dec['stop_n']} of {dec['n']} interviews" if dec else "Pending"
-    st.markdown("### Final prioritisation")
+    interviews_stop = f"{dec['stop_n']} of {dec['n']}" if dec else "Pending"
+    interviews_pay = (f"{dec['pay_n']} of {dec['n']}; {dec['failed_any']} had a failure, none stopped over it"
+                      if dec else "Pending")
+    st.markdown("### Side by side")
     ft = focus["ft"]
     st.dataframe(
         pd.DataFrame([
-            {"Problem": "1 · Failed payments", "Share of stop posts": f"{ft['payment_pct']}%",
-             "Among continuers": f"{ft['payment_cont_pct']}%", "Est. uplift": f"+{ft['payment']:.1f} pp",
-             "Interviews": interviews_p1,
-             "My original cause": "Partly — low balance seen; account change not seen; first SIPs failing to go "
-                                  "live is missing from my list",
-             "Decision": "Parallel track (operations fix)" if keep else "Pending interviews"},
-            {"Problem": "2 · The stop decision", "Share of stop posts": f"{ft['stop_moment_pct']}%",
-             "Among continuers": f"{ft['stop_moment_cont_pct']}%", "Est. uplift": f"+{ft['stop_moment']:.1f} pp",
-             "Interviews": interviews_p2,
-             "My original cause": "Partly — no yardstick for their own SIP, not panic alone",
-             "Decision": "Research & MVP focus (the stop moment)" if keep else "Pending interviews"},
+            {"Problem": "1 · The stop decision", "Share of stop posts": f"{ft['stop_moment_pct']}%",
+             "Among people who kept going": f"{ft['stop_moment_cont_pct']}%",
+             "If fixed": f"+{ft['stop_moment']:.1f} pp",
+             "Interviews": interviews_stop,
+             "What I got wrong": "I thought it was panic. It's that they have no way to judge their own SIP.",
+             "What I did": "Built the MVP here" if keep else "Pending interviews"},
+            {"Problem": "2 · Failed payments", "Share of stop posts": f"{ft['payment_pct']}%",
+             "Among people who kept going": f"{ft['payment_cont_pct']}%",
+             "If fixed": f"+{ft['payment']:.1f} pp",
+             "Interviews": interviews_pay,
+             "What I got wrong": "Low balance shows up. Job-change almost doesn't. First SIPs that never go live weren't on my list.",
+             "What I did": "Ops track, not the MVP" if keep else "Pending interviews"},
         ]),
         hide_index=True, width="stretch",
     )
-    st.caption(f"First-time investors ({ft['risk_n']} posts about stopping). Problem 1 includes first SIPs that never "
-               "went live; Problem 2 covers the four stop-moment opportunity areas.")
-    verdict = (f"The interviews settle it: **{dec['verdict'].lower()}** — {dec['stop_n']} of {dec['n']} risky "
-               f"moments were stop decisions and {dec['pay_n']} a failed instalment." if dec else
-               "The interviews decide which problem the MVP builds on.")
-    st.success(
-        f"**Conclusion:** in public posts, {lead_phrase(focus['all']['stop_moment'], focus['all']['payment'])}; "
-        f"in first-time investors' own posts, {lead_phrase(focus['ft']['stop_moment'], focus['ft']['payment'])}. "
-        f"{verdict} Payment failures stay a parallel operations track (setup tracking, failure reasons, retries); "
-        "the MVP builds on the stop moment, redesigned as neutral support for judging one's own SIP instead of "
-        "fund-level social proof. See **Metric decomposition**."
+    st.caption(f"First-timers: {ft['risk_n']} posts about stopping.")
+    wrap = (
+        f"{dec['stop_n']} of {dec['n']} interviews were a stop decision, {dec['pay_n']} a failed debit. "
+        "I built on cancel. Failed payments stay an ops job: tell them why, retry, repair the mandate."
+        if dec else
+        "Interviews decide which of these I build on."
+    )
+    st.info(
+        f"On public posts, {lead_phrase(focus['all']['stop_moment'], focus['all']['payment'])}. "
+        f"In first-timer posts, {lead_phrase(focus['ft']['stop_moment'], focus['ft']['payment'])}. {wrap}"
     )
 
 

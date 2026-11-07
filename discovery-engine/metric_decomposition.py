@@ -94,14 +94,10 @@ PAYMENT_CODES = ("0", "A")
 PAYMENT_TRACK = ("first_sip_success", "payment_reliability")
 
 METRIC_MECHANICS = [
-    "**One failure is enough.** A monthly SIP with a single failed or skipped instalment in the measurement "
-    "month counts as inactive, even if the investor never meant to stop — continuity matters, not just intent.",
-    "**Reduce is always safe; skip is safe except in the measurement month.** A smaller instalment still counts; "
-    "a skipped month only hurts if it falls in the 30-day window.",
-    "**Recovery is a lever.** A lapsed SIP is active again after one successful instalment, so fast recovery "
-    "of a failure is worth as much as preventing it.",
-    "**The denominator is first-time investors.** Causes that dominate experienced investors' posts may not "
-    "be the ones that end first SIPs.",
+    "Miss one debit in the last 30 days and the SIP counts as inactive, even if they meant to continue.",
+    "A smaller amount still counts. Skipping a month only hurts if that skip falls in the last 30 days.",
+    "Pay again within 30 days and they are back. Getting a failed debit through matters as much as stopping the failure.",
+    "I size this on first-time investors. What experienced people post about may not be what ends a first SIP.",
 ]
 
 
@@ -154,12 +150,13 @@ def focus_comparison(
 
 
 def lead_phrase(stop_moment: float, payment: float) -> str:
-    """Which of the two bets is larger, worded so it stays true when the data changes."""
+    """Which of the two is larger, worded so it stays true when the data changes."""
     if abs(stop_moment - payment) < 0.5:
-        return f"the two are about level (stop moment +{stop_moment:.1f} vs payment +{payment:.1f} pp)"
+        return (f"failed payments and the stop screen are close "
+                f"(+{payment:.1f} pp vs +{stop_moment:.1f} pp)")
     if stop_moment > payment:
-        return f"the stop moment leads (+{stop_moment:.1f} vs +{payment:.1f} pp for payment failure)"
-    return f"payment failure leads (+{payment:.1f} vs +{stop_moment:.1f} pp for the stop moment)"
+        return f"the stop screen is larger (+{stop_moment:.1f} pp vs +{payment:.1f} pp for failed payments)"
+    return f"failed payments are larger (+{payment:.1f} pp vs +{stop_moment:.1f} pp for the stop screen)"
 
 
 def slide_title(focus: dict[str, dict[str, float]], dec: dict | None = None) -> str:
@@ -210,32 +207,27 @@ def interview_hypotheses(gs: dict[str, int]) -> pd.DataFrame:
     p2 = gs.get("p2_n", 0)
     p1 = gs.get("p1_n", 0)
     rows = [
-        ("C", "First-timers who consider stopping lack a way to judge their own SIP (goal, horizon, what is "
-              "normal) — the fall is the trigger, not the cause.",
-         f"Golden set: {gs.get('p2_need_judge', 0)} of {p2} stop cases need a way to judge (decision help, "
-         f"normal or not, recovery); {gs.get('p2_fear', 0)} are plain fear.",
+        ("C", "They don't have a way to tell if their own SIP is okay. The fall is when they notice, not why they stop.",
+         f"Golden set: {gs.get('p2_need_judge', 0)} of {p2} stop cases needed a way to judge; "
+         f"{gs.get('p2_fear', 0)} were just fear.",
          "Walk me through the last time you thought about stopping. What did you look at? Who did you ask?"),
-        ("C", "Peer behaviour ('are others continuing?') is a proxy need; showing fund-level stats would not "
-              "resolve it and reads as an endorsement.",
+        ("C", "They ask what others are doing because they have nothing else to go on. Showing fund stats would look like a recommendation.",
          f"Golden set: {gs.get('p2_peer', 0)} of {gs.get('p2_rows', 0)} ask what others do; the original nudge "
-         "fully fits "
-         f"{gs.get('nudge_yes', 0)} of {gs.get('nudge_n', 0)}.",
+         f"fully fitted {gs.get('nudge_yes', 0)} of {gs.get('nudge_n', 0)}.",
          "When you asked others, what answer would have settled it for you?"),
-        ("C", "Many first-timer 'stops' are switches; the new SIP depends on a second decision that often slips.",
-         "Engine: switching fund or platform is one of the main stop causes in first-time investors' posts.",
+        ("C", "A lot of 'stops' are switches. The new SIP often never starts.",
+         "Switching fund or platform shows up as a main stop cause in first-time investors' posts.",
          "Have you ever stopped one SIP to start another? How long was the gap?"),
-        ("B", "A cash squeeze ends in a cancel because reduce / skip is unknown or not trusted.",
-         "Engine: appears in posts about pausing, but rarely in first-time investors' posts — test whether it is "
-         "simply unspoken.",
+        ("B", "When money is tight they cancel, because skip or reduce isn't obvious.",
+         "This shows up in pause posts, but rarely in first-timer posts — I checked whether they just don't write about it.",
          "Has money ever been tight on the debit date? What did you do with the SIP?"),
-        ("A", "Failed instalments go unnoticed; a bank or salary-account change is a trigger for first-timers too.",
+        ("A", "They often only see a failed instalment when they open the app. A job or bank change can set that up.",
          f"Golden set: {gs.get('p1_not_notified', 0)} of {p1} failures were not notified; "
-         f"{gs.get('p1_fixable', 0)} were user-fixable; of {gs.get('p1_rows', 0)} payment cases, "
-         f"{gs.get('p1_account_change', 0)} mention an account change and {gs.get('p1_two_accounts', 0)} a "
-         "two-account setup.",
+         f"{gs.get('p1_fixable', 0)} they could have fixed; of {gs.get('p1_rows', 0)} payment cases, "
+         f"{gs.get('p1_account_change', 0)} mention an account change.",
          "Has an instalment ever failed? How did you find out? Have you changed jobs or salary accounts since starting?"),
-        ("D", "Not understanding returns (XIRR, red numbers early on) turns normal volatility into 'it isn't working'.",
-         "Engine: a minor primary cause in posts about stopping — likely a weak driver on its own.",
+        ("D", "Red numbers and XIRR make a normal first year look like it isn't working.",
+         "Rarely the main reason people give for stopping. More of a background confusion.",
          "Show me what you check in the app. What does that number tell you?"),
     ]
     return pd.DataFrame(rows, columns=["Branch", "Hypothesis", "Evidence so far", "Interview probe"])
@@ -330,11 +322,11 @@ def tree_svg(sizes: pd.DataFrame, focus: dict[str, dict[str, float]], lapse_rate
                  f'stroke="{CB_BLUE}" stroke-width="3"/>')
     parts.append(f'<rect x="{x0 + 20}" y="{bracket_y - 16}" width="{x1 - x0 - 40}" height="30" fill="#FFFFFF"/>')
     parts.append(_text((x0 + x1) / 2, bracket_y + 5,
-                       [f"THE STOP MOMENT — research & MVP focus: +{focus['all']['stop_moment']:.1f} pp all · "
+                       [f"Stop decision — where I built the MVP: +{focus['all']['stop_moment']:.1f} pp all · "
                         f"+{focus['ft']['stop_moment']:.1f} pp first-time"], 15, "bold", CB_BLUE, "middle"))
     px = [margin + i * (cw + gap_x) for i, b in enumerate(BRANCHES) if b.code in PAYMENT_CODES]
     parts.append(_text((px[0] + px[-1] + cw) / 2, bracket_y + 5,
-                       [f"FAILED PAYMENTS — fix in parallel: +{focus['all']['payment']:.1f} pp all · "
+                       [f"Failed payments — ops track: +{focus['all']['payment']:.1f} pp all · "
                         f"+{focus['ft']['payment']:.1f} pp first-time"], 13, "bold", "#92400E", "middle"))
 
     # Recovery bar + footnote
@@ -344,9 +336,9 @@ def tree_svg(sizes: pd.DataFrame, focus: dict[str, dict[str, float]], lapse_rate
     parts.append(_text(margin + 16, ry + 27, [f"{RECOVERY[0]}  ·  Leading indicator: {RECOVERY[1]}"], 15,
                        "bold"))
     a, f = focus["all"], focus["ft"]
-    note = (f"Sizes from {a['risk_n']} posts about stopping (all) and {f['risk_n']} from first-time "
-            f"investors (small sample — a hypothesis to test). Assumes {lapse_rate * 100:.0f}% of first SIPs lapse "
-            "by month 12 and 30% of each branch is recoverable. Solid blue = focus; dashed orange = parallel track.")
+    note = (f"From {a['risk_n']} stop posts (all) and {f['risk_n']} from first-timers "
+            f"(small set — treat as a hint). Assumes {lapse_rate * 100:.0f}% of first SIPs lapse "
+            "by month 12 and 30% of each cause can come back. Blue = MVP. Orange = ops.")
     parts.append(_text(margin, ry + 72, wrap(note, 190), 12, "normal", GREY))
     parts.append("</svg>")
     return "".join(parts)
