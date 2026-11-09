@@ -1,8 +1,16 @@
 # AI Evidence Log — Groww SIP Discovery Engine
-Generated 03 Nov 2026 from the live data by `discovery-engine/evidence_log.py`. Engine: https://groww-sip-discovery-engine-ve6n6mkspofse9xbwkzrsh.streamlit.app · Code and data: https://github.com/parasharakk-png/groww-sip-discovery-engine
+
+This is the log for the **discovery engine** (public posts → two problems → which one to build). It is not the cancel-sheet MVP.
+
+Live engine: https://grow-sip-engine-nlems472oc7cfzz4ripgxr.streamlit.app  
+Code and data: https://github.com/parasharakk-png/grow-sip-engine  
+Numbers generated 09 Nov 2026 from the live files (`discovery-engine/evidence_log.py`).
+
+Problem 1 in this log is the **stop decision** (the MVP). Problem 2 is **failed payments** (ops). That matches the engine Overview tab.
 
 ## 1. Sources and volume
-The engine analyses **1,917 public posts** (526 from first-time investors, 1,391 from other investors as a comparison group), selected from 4,546 pooled posts. 447 posts describe stopping, pausing, a failed payment or a strong link to lapse; 421 describe continuing.
+
+The engine reads **1,917 public posts** (526 from first-time investors, 1,391 from other investors so I can compare). They come from 4,546 pooled posts. **447** are about stopping, pausing, a failed payment or a strong link to a lapse. **421** are people who kept going. **68** of the stop posts are from first-timers — a small set, used as a hint for interviews.
 
 | Source | Pooled | In corpus | First-time target | Dated | Years | How collected |
 |---|---|---|---|---|---|---|
@@ -13,7 +21,7 @@ The engine analyses **1,917 public posts** (526 from first-time investors, 1,391
 | App Store | 64 | 11 | 2 | 100% | 2026–2026 | Apple's public customer-reviews RSS feed (Groww app) |
 | **Total** | 4546 | 1917 | 526 | 100% |  |  |
 
-**How posts were selected**
+**How posts were kept**
 
 | Step | Posts | Method |
 |---|---|---|
@@ -24,39 +32,40 @@ The engine analyses **1,917 public posts** (526 from first-time investors, 1,391
 | 5. Own experience confirmed by LLM | 1917 | Problem-fit LLM pass rejected 292 |
 | 6. First-time investors (target group) | 526 | LLM investor stage; first-time phrase rule where the LLM can't tell |
 
-**AI used at each step**
+**Where AI was used — and where it was not**
 
-- **First-pass screening** (is this a first-time investor's own experience?): MiniMax-M2.7-highspeed, 326 candidates.
-- **Problem-fit coding** (2,209 posts: investor stage, months since start, SIP status, core concern): MiniMax-M2.7-highspeed through an Anthropic-compatible gateway; prompt versioned and cached.
-- **Codebook coding** (lifecycle, trigger, emotion, behaviour, link to lapse, quote): 1,984 posts coded by the LLM (latest pass MiniMax-M2.7-highspeed), cached in checkpoints so reruns reuse them.
-- **Answer layer** (Ask the engine): the LLM reasons over a numeric evidence pack and cites post IDs; every question is checked by a rule-based guard first.
-- **Not AI:** the cause taxonomy, opportunity sizing and golden-set scoring are fixed, auditable rules.
-- **Quote check:** 1,886 AI-extracted quotes were found verbatim in their post; 31 were not.
+- **Screening** (is this a first-time investor talking about their own SIP?): MiniMax-M2.7-highspeed, 326 candidates.
+- **Problem-fit tags** (2,209 posts: investor stage, months in, SIP status, main concern): MiniMax-M2.7-highspeed, prompt versioned and cached.
+- **Codebook tags** (lifecycle, trigger, emotion, behaviour, link to lapse, quote): 1,984 posts by the same model, cached so a rebuild does not call the model again.
+- **Ask the engine:** the model only writes over a numeric pack and must cite post IDs. A rule-based guard runs first. Below 3 matching posts it says it does not know.
+- **Not AI:** the cause of each stop post, the opportunity sizes, and the golden-set scores are fixed text rules. I did this after the golden set showed the model could not name *why* they stop.
+- **Quote check:** 1,886 of the AI-picked quotes appear word for word in the post; 31 do not.
 
-## 2. Golden set: hand labels vs the engine
-**20 posts** (13 for Problem 2 — stopping in a market fall, my priority; 7 for Problem 1 — payment / mandate failure) are labelled against a written codebook with 19 fields. Rows were chosen to be hard: core cases, hard negatives that fool keyword rules, early signals and counter-evidence to my own solution.
+## 2. Golden set: 20 posts I labelled by hand
 
-- **Hand check:** all 20 labels checked by me, reading each post.
-- **Selection screen check:** the pipeline's keep/drop decision matched my *own experience* label on **20 of 20** golden posts. It kept every post I marked as the author's own experience. The tables use 19 rows: post #398 is correctly excluded, and #2547 is scored as its kept duplicate #1405.
+I labelled **20 hard posts** (13 stop decision, 7 failed payments) against a written codebook. They are not a random sample: core cases, posts that fool keyword rules, and posts that argue against my first solution.
 
-**How often the engine agreed with me**
+- I read every post and checked every label.
+- The keep/drop screen matched my *own experience* label on **20 of 20**. It kept every post I marked as the author's own experience. Post #398 is correctly left out of the corpus. #2547 is scored as its kept duplicate #1405.
 
-| Problem | What is checked | Engine method | Rows | Agreement | Precision | Recall |
+**How often it matched my labels**
+
+| Problem | What I checked | Engine method | Rows | Match with my labels | Precision | Recall |
 |---|---|---|---|---|---|---|
-| P2 | Own portfolio is falling | Text rule (regex) | 12 | 92% | 90% | 100% |
-| P2 | Anxious / panicking | Text rule (regex) | 12 | 67% | 60% | 60% |
-| P2 | Anxious / panicking | LLM codebook | 12 | 75% | 75% | 60% |
-| P2 | Stopping, pausing or reducing | Engine (rules + LLM) | 12 | 75% | 100% | 67% |
-| P2 | Stop caused by the fall | Text rule (regex) | 12 | 67% | 57% | 80% |
-| P2 | Stop caused by the fall | LLM codebook | 12 | 83% | 80% | 80% |
-| P2 | Asks what others are doing | Text rule (regex) | 12 | 50% | 20% | 33% |
-| P2 | Why they stop (driver) | Engine (rules + LLM) | 9 | 33% | — | — |
-| P1 | Instalment failed | Text rule (regex) | 7 | 57% | 75% | 60% |
-| P1 | Instalment failed | LLM codebook | 7 | 86% | 83% | 100% |
-| P1 | Cause of failure | Text rule (regex) | 5 | 40% | — | — |
-| P1 | Job / bank / salary-account change | Text rule (regex) | 7 | 71% | 50% | 50% |
+| 1 · Stop decision | Own portfolio is falling | Text rule (regex) | 12 | 92% | 90% | 100% |
+| 1 · Stop decision | Anxious / panicking | Text rule (regex) | 12 | 67% | 60% | 60% |
+| 1 · Stop decision | Anxious / panicking | LLM codebook | 12 | 75% | 75% | 60% |
+| 1 · Stop decision | Stopping, pausing or reducing | Engine (rules + LLM) | 12 | 75% | 100% | 67% |
+| 1 · Stop decision | Stop caused by the fall | Text rule (regex) | 12 | 67% | 57% | 80% |
+| 1 · Stop decision | Stop caused by the fall | LLM codebook | 12 | 83% | 80% | 80% |
+| 1 · Stop decision | Asks what others are doing | Text rule (regex) | 12 | 50% | 20% | 33% |
+| 1 · Stop decision | Why they stop (driver) | Engine (rules + LLM) | 9 | 33% | — | — |
+| 2 · Failed payments | Instalment failed | Text rule (regex) | 7 | 57% | 75% | 60% |
+| 2 · Failed payments | Instalment failed | LLM codebook | 7 | 86% | 83% | 100% |
+| 2 · Failed payments | Cause of failure | Text rule (regex) | 5 | 40% | — | — |
+| 2 · Failed payments | Job / bank / salary-account change | Text rule (regex) | 7 | 71% | 50% | 50% |
 
-**Where it failed** (lowest agreement first, with the labelling rationale)
+**Where it failed** (lowest match first)
 
 - **Why they stop (driver) — Engine (rules + LLM): 33% agreement on 9 rows.**
   - Post #279: hand label *fall_emotion*, engine *fund_specific*. First-time investor (2.5 yrs) whose XIRR fell from 16% to 0.6%. Long-term plan stated, but the recent fall overrides it. Asks for a decision, not what others do; a '% still continuing' sheet helps a little but does not explain why XIRR swings.
@@ -68,35 +77,42 @@ The engine analyses **1,917 public posts** (526 from first-time investors, 1,391
   - Post #307: hand label *no*, engine *yes*. Fear of a future recession, not a fall that has happened. The push comes from a trusted family member. A stranger-statistic nudge competes with dad's 20 years of experience, so only partial fit.
   - Post #1027: hand label *no*, engine *yes*. No fall at all (45% up). The market-fall pattern matches only because of the word 'correction'. A wish to time dips, not a panic stop.
 - **Instalment failed — Text rule (regex): 57% agreement on 7 rows.**
-  - Post #259: hand label *no*, engine *yes*. The exact Problem 1 moment: bank changed, old mandate removed, and no way to see whether the new mandate is live. No failure yet, so at risk. The engine's bank-change pattern misses 'change my primary bank'.
+  - Post #259: hand label *no*, engine *yes*. The exact payment-failure moment: bank changed, old mandate removed, and no way to see whether the new mandate is live. No failure yet, so at risk. The engine's bank-change pattern misses 'change my primary bank'.
   - Post #1405: hand label *yes*, engine *no*. First-timer whose SIP never ran for 6 months because a setup step was not explained.
 
-**What the golden set changed**
+**What I changed because of this set**
 
-- Of 9 hand-labelled stops in a fall, only 4 are fear or an expectation gap; 2 are market timing, 1 fund-specific and 1 cash needs. "Panic" was too narrow.
-- My original nudge (share of investors continuing in this fund) fully fits 1 posts and partly fits 4; it does not fit 4.
-- Of 5 payment failures, 2 were not notified in time and 6 were fixable by the user with the right information.
+- Of 9 hand-labelled stops in a fall, only 4 are fear or an expectation gap. 2 are market timing, 1 a fund issue, 1 cash. "Panic" was the wrong word.
+- My first nudge ("x% of investors kept their SIP") fully fitted 1 of 9 posts. I dropped it.
+- Of 5 payment failures, 2 were not told in time and 5 were things the user could have fixed if the app had said why.
+- The model's "why they stop" label matched me on **33%** of rows. Sizing therefore uses visible text rules, not that label.
 
 ## 3. Where I rejected or corrected AI output
 
-### 1. The LLM's stop trigger could not explain stopping — replaced with an auditable cause taxonomy
-- **AI output:** the codebook LLM gives each post one trigger. For 82 of 447 posts about stopping (18%) it said *none obvious / other / unknown*, and the stated ones were broad (top: platform_bug, failed_debit, mandate_autopay_issue).
-- **Why I rejected it:** a vague label per post can't separate a failed mandate from a fund switch or a cash need, so trigger counts said nothing about *why* SIPs end.
-- **Correction:** a fixed, versioned text-pattern taxonomy of 10 causes (reasoning.py) assigns each post a primary cause; it covers 272 of 447 stop posts. Patterns are visible in the app and scored against the golden set.
+### 1. The model's stop trigger could not explain why SIPs end
+- **What it did:** each post gets one trigger. For 82 of 447 stop posts (18%) it said *none / other / unknown*. The rest were broad (top: platform_bug, failed_debit, mandate_autopay_issue).
+- **Why that is not usable:** a vague tag cannot split a failed mandate from a fund switch or a cash squeeze, so I could not size anything from it.
+- **What I did:** a fixed set of 10 text-pattern causes. It covers 272 of 447 stop posts. The patterns are in the engine and scored on the golden set.
 
-### 2. The AI's reading of why people stop in a fall didn't match the posts — not used for sizing
-- **AI output:** the LLM codebook found only 80% of the stops that a fall caused (text rules: 80%), and the engine's stop driver matched the hand labels on only 33% of stops, mixing up fear, market timing and fund-specific reasons.
-- **Why I rejected it:** sizing from the LLM label would under-count fall-driven stops, and a driver that can't tell fear from timing can't say whether 'panic' is the problem. Reading the posts, fear was a minority (4 of 9 stops, with expectation gaps); the common thread was having no way to judge whether the SIP was on track.
-- **Correction:** sizing uses the text-pattern causes, not the LLM's fall-causation label; Problem 2 is reframed from "panic" to "no way to judge my own SIP at the stop moment", and fund-level social proof was dropped from the solution.
+### 2. "Panic in a fall" did not match the posts — not used for sizing
+- **What it did:** the codebook found 80% of the stops a fall caused (text rules also 80%). The "why they stop" driver matched me on only 33% of stops, mixing fear, timing and the fund.
+- **Why I rejected it:** if I sized from that label I would under-count fall stops, and I still could not say whether panic was the problem. In the set, fear was 4 of 9 stops. The common thread was having no way to tell if *their* SIP was okay.
+- **What I did:** size from the text-pattern causes. Problem 1 is "no yardstick of their own", not panic. The "x% kept going" nudge is gone.
 
-### 3. The AI answered personal-advice and support questions — added a question guard
-- **AI output:** when I tested it with real user questions — *"Should I stop SIP?"*, *"Which mutual fund to buy?"*, *"Which bank account should I open?"*, *"OTP is not coming"* — the answer layer answered them from the evidence pack instead of declining.
-- **Why I rejected it:** the brief forbids fund recommendations, and an evidence engine has nothing valid to say about one person's account.
-- **Correction:** a rule-based guard classifies every question first (research, advice, support, unsafe, off-topic, prevalence) and declines with a reason and a research reframe; 58 of 58 test questions pass (6 kinds). The LLM also has a refusal step, and below 3 matching posts the engine abstains.
+### 3. The engine answered advice and support questions — I added a guard
+- **What it did:** test questions like *"Should I stop SIP?"*, *"Which mutual fund to buy?"*, *"Which bank account should I open?"*, *"OTP is not coming"* got an answer from the evidence pack.
+- **Why I rejected it:** the brief forbids fund picks. An evidence engine has nothing valid to say about one person's account.
+- **What I did:** a rule-based guard (research, advice, support, unsafe, off-topic, how common) declines with a reason and a research reframe. **58 of 58** test questions pass (6 kinds). Below 3 matching posts it abstains.
 
-## 4. Limitations
-- Public posts are not a random sample of investors; shares are of posts, not people.
-- Few first-time investors post about stopping (68 posts), so first-time splits are hypotheses for the interviews, not measurements.
-- Uplift estimates combine post shares with fixed assumptions (40% lapse rate, 30% recovery, addressability per opportunity); Groww cohort data would replace them.
-- The AI selection screen loses some real stories (0 of 19 in the golden set), so counts are slightly conservative.
-- The golden set is small (20 rows) and checked by one person.
+## 4. What this meant for the product
+
+On first-timer stop posts the two problems are about level (stop decision 29.4% / +2.3 pp; failed payments 27.9% / +2.9 pp). Posts could not pick the MVP. The rule I wrote before interviews: stay on the stop screen if at least 3 of 5 describe that moment. **5 of 5** did; **0 of 5** stopped over a failed debit. That is why the MVP is a sheet before cancel, and failed payments stay an ops track (tell them why, retry, repair the mandate).
+
+## 5. Limitations
+
+- These are public posts, not Groww users. Shares are of posts, not people.
+- Only 68 first-timer stop posts, so first-timer bars are a hint, not a count of users.
+- Uplift uses 40% lapse and 30% recoverable, plus how fixable each cause looks. Groww's cohort file would replace that.
+- The selection screen can drop real stories (0 of 19 in this golden set).
+- The golden set is 20 hard posts, labelled by one person.
+- Five interviews from my network, all already at risk. They show what the moment looks like, not how common it is.

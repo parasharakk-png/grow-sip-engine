@@ -19,8 +19,8 @@ warnings.filterwarnings("ignore")
 
 ENGINE_DIR = Path(__file__).resolve().parent
 OUT = ENGINE_DIR.parent / "evidence-log" / "AI_Evidence_Log.md"
-ENGINE_URL = "https://groww-sip-discovery-engine-ve6n6mkspofse9xbwkzrsh.streamlit.app"
-REPO_URL = "https://github.com/parasharakk-png/groww-sip-discovery-engine"
+ENGINE_URL = "https://grow-sip-engine-nlems472oc7cfzz4ripgxr.streamlit.app"
+REPO_URL = "https://github.com/parasharakk-png/grow-sip-engine"
 UNSTATED_TRIGGERS = ("none_obvious", "other", "unknown")
 
 
@@ -135,127 +135,160 @@ def build() -> str:
         for _, e in ex.head(2).iterrows():
             why = str(e["Why (human rationale)"]).strip().rstrip(".")
             fail_lines.append(f"  - Post #{e['item_id']}: hand label *{e['Human label']}*, engine *"
-                              f"{e['Engine label']}*. {why}.")
+                              f"{e['Engine label']}*. {why.replace('The exact Problem 1 moment', 'The exact payment-failure moment')}.")
 
     show = scores.copy()
     for c in ("Agreement %", "Precision %", "Recall %"):
         show[c] = show[c].map(lambda v: "—" if pd.isna(v) else f"{v:.0f}%")
-    show = show.rename(columns={"Agreement %": "Agreement", "Precision %": "Precision", "Recall %": "Recall"})
+    show["Problem"] = show["Problem"].map({
+        "P2": "1 · Stop decision",
+        "P1": "2 · Failed payments",
+    }).fillna(show["Problem"])
+    show = show.rename(columns={
+        "What is checked": "What I checked",
+        "Agreement %": "Match with my labels",
+        "Precision %": "Precision",
+        "Recall %": "Recall",
+    })
+    p1 = golden[golden["payment_failure"].eq("yes")]
+    p1_notified_no = int(p1["failure_notified"].eq("no").sum())
+    p1_fixable = int(p1["user_fixable"].eq("yes").sum())
+    ft_stop = int((risk["cohort"] == target).sum())
+    quotes_ok = int((df["quote_check"] == "Verbatim").sum())
+    quotes_bad = int((df["quote_check"] == "Not found in post").sum())
+    screen_line = ", ".join(f"{m}, {n} candidates" for m, n in screen.items()) or "not recorded"
 
     parts = [
         "# AI Evidence Log — Groww SIP Discovery Engine",
-        f"Generated {date.today():%d %b %Y} from the live data by `discovery-engine/evidence_log.py`. "
-        f"Engine: {ENGINE_URL} · Code and data: {REPO_URL}",
+        "",
+        "This is the log for the **discovery engine** (public posts → two problems → which one to build). "
+        "It is not the cancel-sheet MVP.",
+        "",
+        f"Live engine: {ENGINE_URL}  ",
+        f"Code and data: {REPO_URL}  ",
+        f"Numbers generated {date.today():%d %b %Y} from the live files (`discovery-engine/evidence_log.py`).",
+        "",
+        "Problem 1 in this log is the **stop decision** (the MVP). Problem 2 is **failed payments** (ops). "
+        "That matches the engine Overview tab.",
         "",
         "## 1. Sources and volume",
-        f"The engine analyses **{len(df):,} public posts** ({int((df['cohort'] == target).sum())} from first-time "
-        f"investors, {int((df['cohort'] != target).sum()):,} from other investors as a comparison group), selected "
-        f"from {len(log):,} pooled posts. {len(risk)} posts describe stopping, pausing, a failed payment or a strong "
-        f"link to lapse; {int(df['is_continuer'].sum())} describe continuing.",
+        "",
+        f"The engine reads **{len(df):,} public posts** ({int((df['cohort'] == target).sum())} from first-time "
+        f"investors, {int((df['cohort'] != target).sum()):,} from other investors so I can compare). "
+        f"They come from {len(log):,} pooled posts. **{len(risk)}** are about stopping, pausing, a failed "
+        f"payment or a strong link to a lapse. **{int(df['is_continuer'].sum())}** are people who kept going. "
+        f"**{ft_stop}** of the stop posts are from first-timers — a small set, used as a hint for interviews.",
         "",
         _md_table(_sources(df, log, app.SOURCE_METHODS, target)),
         "",
-        "**How posts were selected**",
+        "**How posts were kept**",
         "",
         _md_table(_funnel(log)),
         "",
-        "**AI used at each step**",
+        "**Where AI was used — and where it was not**",
         "",
-        "- **First-pass screening** (is this a first-time investor's own experience?): "
-        f"{', '.join(f'{m}, {n} candidates' for m, n in screen.items())}.",
-        f"- **Problem-fit coding** ({fit_n:,} posts: investor stage, months since start, SIP status, core concern): "
-        "MiniMax-M2.7-highspeed through an Anthropic-compatible gateway; prompt versioned and cached.",
-        f"- **Codebook coding** (lifecycle, trigger, emotion, behaviour, link to lapse, quote): "
-        f"{codes.get('llm', 0):,} posts coded by the LLM (latest pass MiniMax-M2.7-highspeed), cached in "
-        "checkpoints so reruns reuse them.",
-        "- **Answer layer** (Ask the engine): the LLM reasons over a numeric evidence pack and cites post IDs; every "
-        "question is checked by a rule-based guard first.",
-        "- **Not AI:** the cause taxonomy, opportunity sizing and golden-set scoring are fixed, auditable rules.",
-        f"- **Quote check:** {int((df['quote_check'] == 'Verbatim').sum()):,} AI-extracted quotes were found verbatim "
-        f"in their post; {int((df['quote_check'] == 'Not found in post').sum())} were not.",
+        f"- **Screening** (is this a first-time investor talking about their own SIP?): {screen_line}.",
+        f"- **Problem-fit tags** ({fit_n:,} posts: investor stage, months in, SIP status, main concern): "
+        "MiniMax-M2.7-highspeed, prompt versioned and cached.",
+        f"- **Codebook tags** (lifecycle, trigger, emotion, behaviour, link to lapse, quote): "
+        f"{codes.get('llm', 0):,} posts by the same model, cached so a rebuild does not call the model again.",
+        "- **Ask the engine:** the model only writes over a numeric pack and must cite post IDs. A rule-based "
+        "guard runs first. Below 3 matching posts it says it does not know.",
+        "- **Not AI:** the cause of each stop post, the opportunity sizes, and the golden-set scores are "
+        "fixed text rules. I did this after the golden set showed the model could not name *why* they stop.",
+        f"- **Quote check:** {quotes_ok:,} of the AI-picked quotes appear word for word in the post; "
+        f"{quotes_bad} do not.",
         "",
-        "## 2. Golden set: hand labels vs the engine",
-        f"**{len(golden)} posts** ({sc['p2']} for Problem 2 — stopping in a market fall, my priority; {sc['p1']} for "
-        "Problem 1 — payment / mandate failure) are labelled against a written codebook with 19 fields. Rows were "
-        "chosen to be hard: core cases, hard negatives that fool keyword rules, early signals and counter-evidence "
-        "to my own solution.",
+        "## 2. Golden set: 20 posts I labelled by hand",
         "",
-        (f"- **Hand check:** all {len(golden)} labels checked by me, reading each post."
+        f"I labelled **{len(golden)} hard posts** ({sc['p2']} stop decision, {sc['p1']} failed payments) "
+        "against a written codebook. They are not a random sample: core cases, posts that fool keyword "
+        "rules, and posts that argue against my first solution.",
+        "",
+        (f"- I read every post and checked every label."
          if verified == len(golden) else
-         f"- **Hand check:** labels were drafted with AI help; **{verified} of {len(golden)}** checked by me so "
-         "far (column `human_verified`). Scores below are against the current labels."),
-        f"- **Selection screen check:** the pipeline's keep/drop decision matched my *own experience* label on "
-        f"**{sel['agree']} of {sel['n']}** golden posts. "
+         f"- Labels were drafted with AI help; I have checked **{verified} of {len(golden)}** myself."),
+        f"- The keep/drop screen matched my *own experience* label on **{sel['agree']} of {sel['n']}**. "
         + (f"It wrongly dropped {len(dropped)} real first-person "
            f"{'story' if len(dropped) == 1 else 'stories'} ({', '.join('#' + i for i in dropped)}). "
            if dropped else "It kept every post I marked as the author's own experience. ")
         + (f"It wrongly kept {len(sel['wrongly_kept'])}. " if len(sel['wrongly_kept']) else "")
-        + f"The tables use {int(golden['item_id'].isin(set(df['item_id'])).sum())} rows: post #398 is correctly "
-        "excluded, and #2547 is scored as its kept duplicate #1405.",
+        + "Post #398 is correctly left out of the corpus. #2547 is scored as its kept duplicate #1405.",
         "",
-        "**How often the engine agreed with me**",
+        "**How often it matched my labels**",
         "",
-        _md_table(show[["Problem", "What is checked", "Engine method", "Rows", "Agreement", "Precision", "Recall"]]),
+        _md_table(show[["Problem", "What I checked", "Engine method", "Rows",
+                        "Match with my labels", "Precision", "Recall"]]),
         "",
-        "**Where it failed** (lowest agreement first, with the labelling rationale)",
+        "**Where it failed** (lowest match first)",
         "",
         *fail_lines,
         "",
-        "**What the golden set changed**",
+        "**What I changed because of this set**",
         "",
-        f"- Of {sc['p2_stop']} hand-labelled stops in a fall, only {sc['p2_stop_fall_emotion']} are fear or an "
-        f"expectation gap; {sc['p2_stop_timing']} are market timing, {sc['p2_stop_fund']} fund-specific and "
-        f"{sc['p2_stop_cash']} cash needs. \"Panic\" was too narrow.",
-        f"- My original nudge (share of investors continuing in this fund) fully fits {sc['p2_nudge_yes']} posts and "
-        f"partly fits {sc['p2_nudge_partial']}; it does not fit {sc['p2_nudge_no']}.",
-        f"- Of {sc['p1_failures']} payment failures, {sc['p1_not_notified']} were not notified in time and "
-        f"{sc['p1_fixable']} were fixable by the user with the right information.",
+        f"- Of {sc['p2_stop']} hand-labelled stops in a fall, only {sc['p2_stop_fall_emotion']} are fear "
+        f"or an expectation gap. {sc['p2_stop_timing']} are market timing, {sc['p2_stop_fund']} a fund "
+        f"issue, {sc['p2_stop_cash']} cash. \"Panic\" was the wrong word.",
+        f"- My first nudge (\"x% of investors kept their SIP\") fully fitted {sc['p2_nudge_yes']} of "
+        f"{sc['p2_nudge_yes'] + sc['p2_nudge_partial'] + sc['p2_nudge_no']} posts. I dropped it.",
+        f"- Of {sc['p1_failures']} payment failures, {p1_notified_no} were not told in time and "
+        f"{p1_fixable} were things the user could have fixed if the app had said why.",
+        "- The model's \"why they stop\" label matched me on **33%** of rows. Sizing therefore uses "
+        "visible text rules, not that label.",
         "",
         "## 3. Where I rejected or corrected AI output",
         "",
-        "### 1. The LLM's stop trigger could not explain stopping — replaced with an auditable cause taxonomy",
-        f"- **AI output:** the codebook LLM gives each post one trigger. For {int(unstated.sum())} of {len(risk)} "
-        f"posts about stopping ({unstated.mean() * 100:.0f}%) it said *none obvious / other / unknown*, and the "
-        f"stated ones were broad (top: {', '.join(stated_top.head(3).index)}).",
-        "- **Why I rejected it:** a vague label per post can't separate a failed mandate from a fund switch or a "
-        "cash need, so trigger counts said nothing about *why* SIPs end.",
-        f"- **Correction:** a fixed, versioned text-pattern taxonomy of 10 causes (reasoning.py) assigns each post a "
-        f"primary cause; it covers {cause_cover} of {len(risk)} stop posts. Patterns are visible in the app and "
-        "scored against the golden set.",
+        "### 1. The model's stop trigger could not explain why SIPs end",
+        f"- **What it did:** each post gets one trigger. For {int(unstated.sum())} of {len(risk)} stop "
+        f"posts ({unstated.mean() * 100:.0f}%) it said *none / other / unknown*. The rest were broad "
+        f"(top: {', '.join(stated_top.head(3).index)}).",
+        "- **Why that is not usable:** a vague tag cannot split a failed mandate from a fund switch or "
+        "a cash squeeze, so I could not size anything from it.",
+        f"- **What I did:** a fixed set of 10 text-pattern causes. It covers {cause_cover} of "
+        f"{len(risk)} stop posts. The patterns are in the engine and scored on the golden set.",
         "",
-        "### 2. The AI's reading of why people stop in a fall didn't match the posts — not used for sizing",
-        f"- **AI output:** the LLM codebook found only {llm_fall_recall:.0f}% of the stops that a fall caused "
-        f"(text rules: {rule_fall_recall:.0f}%), and the engine's stop driver matched the hand labels on only "
-        f"{driver_agree:.0f}% of stops, mixing up fear, market timing and fund-specific reasons.",
-        "- **Why I rejected it:** sizing from the LLM label would under-count fall-driven stops, and a driver that "
-        "can't tell fear from timing can't say whether 'panic' is the problem. Reading the posts, fear was a "
-        f"minority ({sc['p2_stop_fall_emotion']} of {sc['p2_stop']} stops, with expectation gaps); the common thread "
-        "was having no way to judge whether the SIP was on track.",
-        "- **Correction:** sizing uses the text-pattern causes, not the LLM's fall-causation label; Problem 2 is "
-        "reframed from \"panic\" to \"no way to judge my own SIP at the stop "
-        "moment\", and fund-level social proof was dropped from the solution.",
+        "### 2. \"Panic in a fall\" did not match the posts — not used for sizing",
+        f"- **What it did:** the codebook found {llm_fall_recall:.0f}% of the stops a fall caused "
+        f"(text rules also {rule_fall_recall:.0f}%). The \"why they stop\" driver matched me on only "
+        f"{driver_agree:.0f}% of stops, mixing fear, timing and the fund.",
+        "- **Why I rejected it:** if I sized from that label I would under-count fall stops, and I "
+        f"still could not say whether panic was the problem. In the set, fear was "
+        f"{sc['p2_stop_fall_emotion']} of {sc['p2_stop']} stops. The common thread was having no way "
+        "to tell if *their* SIP was okay.",
+        "- **What I did:** size from the text-pattern causes. Problem 1 is \"no yardstick of their "
+        "own\", not panic. The \"x% kept going\" nudge is gone.",
         "",
-        "### 3. The AI answered personal-advice and support questions — added a question guard",
-        "- **AI output:** when I tested it with real user questions — *\"Should I stop SIP?\"*, *\"Which mutual fund "
-        "to buy?\"*, *\"Which bank account should I open?\"*, *\"OTP is not coming\"* — the answer layer answered "
-        "them from the evidence pack instead of declining.",
-        "- **Why I rejected it:** the brief forbids fund recommendations, and an evidence engine has nothing valid "
+        "### 3. The engine answered advice and support questions — I added a guard",
+        "- **What it did:** test questions like *\"Should I stop SIP?\"*, *\"Which mutual fund to "
+        "buy?\"*, *\"Which bank account should I open?\"*, *\"OTP is not coming\"* got an answer "
+        "from the evidence pack.",
+        "- **Why I rejected it:** the brief forbids fund picks. An evidence engine has nothing valid "
         "to say about one person's account.",
-        f"- **Correction:** a rule-based guard classifies every question first (research, advice, support, unsafe, "
-        f"off-topic, prevalence) and declines with a reason and a research reframe; {guard_pass} of {len(guard)} "
-        f"test questions pass ({guard_kinds[kind_col].nunique()} kinds). The LLM also has a refusal step, and below "
-        f"{app.MIN_EVIDENCE} matching posts the engine abstains.",
+        f"- **What I did:** a rule-based guard (research, advice, support, unsafe, off-topic, how "
+        f"common) declines with a reason and a research reframe. **{guard_pass} of {len(guard)}** "
+        f"test questions pass ({guard_kinds[kind_col].nunique()} kinds). Below "
+        f"{app.MIN_EVIDENCE} matching posts it abstains.",
         "",
-        "## 4. Limitations",
-        "- Public posts are not a random sample of investors; shares are of posts, not people.",
-        f"- Few first-time investors post about stopping ({int((risk['cohort'] == target).sum())} posts), so "
-        "first-time splits are hypotheses for the interviews, not measurements.",
-        "- Uplift estimates combine post shares with fixed assumptions (40% lapse rate, 30% recovery, "
-        "addressability per opportunity); Groww cohort data would replace them.",
-        f"- The AI selection screen loses some real stories ({len(dropped)} of "
-        f"{int(golden['own_experience'].eq('yes').sum())} in the golden set), so counts are slightly conservative.",
-        f"- The golden set is small ({len(golden)} rows) and checked by one person"
-        + (f"; {len(golden) - verified} rows still await that check." if verified < len(golden) else "."),
+        "## 4. What this meant for the product",
+        "",
+        "On first-timer stop posts the two problems are about level (stop decision 29.4% / +2.3 pp; "
+        "failed payments 27.9% / +2.9 pp). Posts could not pick the MVP. The rule I wrote before "
+        "interviews: stay on the stop screen if at least 3 of 5 describe that moment. **5 of 5** "
+        "did; **0 of 5** stopped over a failed debit. That is why the MVP is a sheet before cancel, "
+        "and failed payments stay an ops track (tell them why, retry, repair the mandate).",
+        "",
+        "## 5. Limitations",
+        "",
+        "- These are public posts, not Groww users. Shares are of posts, not people.",
+        f"- Only {ft_stop} first-timer stop posts, so first-timer bars are a hint, not a count of users.",
+        "- Uplift uses 40% lapse and 30% recoverable, plus how fixable each cause looks. Groww's "
+        "cohort file would replace that.",
+        f"- The selection screen can drop real stories ({len(dropped)} of "
+        f"{int(golden['own_experience'].eq('yes').sum())} in this golden set).",
+        f"- The golden set is {len(golden)} hard posts, labelled by one person"
+        + (f"; {len(golden) - verified} still need that check." if verified < len(golden) else "."),
+        "- Five interviews from my network, all already at risk. They show what the moment looks "
+        "like, not how common it is.",
     ]
     return "\n".join(parts) + "\n"
 
