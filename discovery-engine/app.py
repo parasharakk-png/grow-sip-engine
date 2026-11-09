@@ -709,11 +709,20 @@ def render_opportunity_tab(df: pd.DataFrame) -> None:
             "If this were fixed": st.column_config.NumberColumn(format="+%.1f pp"),
         },
     )
-    _opp_bar_chart(opps, "Est. uplift (pp)", "If this were fixed (pp on the 12-month rate)", "+{:.1f} pp")
     st.caption(
         "These are shares of public posts, not of Groww users. Change the two assumptions in the sidebar and the "
         "bars move."
     )
+
+    compare, dive, branches = st.tabs(
+        ["Share · stoppers vs continuers · severity", "Deep dive", "Metric branches"]
+    )
+    with compare:
+        render_opportunity_compare(opps)
+    with dive:
+        render_opportunity_deep_dive(df, opps)
+    with branches:
+        render_metric_branches_tab(df)
 
 
 def render_how_it_works(df: pd.DataFrame) -> None:
