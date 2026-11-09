@@ -1,13 +1,17 @@
 """Generate the AI Evidence Log (assignment deliverable) from the live data, so every number is reproducible.
 
-Writes ../evidence-log/AI_Evidence_Log.md. Rerun after any corpus rebuild or golden-set edit:
+Writes ../evidence-log/AI_Evidence_Log.md and AI_Evidence_Log.csv.
+Rerun after any corpus rebuild or golden-set edit:
     python3 evidence_log.py
-Paste the output into a Google Doc shared as "anyone with the link can view".
+Import the CSV into Google Sheets (File → Import → Replace current sheet) and share as
+"anyone with the link can view". Use that sheet URL on the slides.
 """
 
 from __future__ import annotations
 
+import csv
 import json
+import re
 import warnings
 from collections import Counter
 from datetime import date
@@ -19,6 +23,7 @@ warnings.filterwarnings("ignore")
 
 ENGINE_DIR = Path(__file__).resolve().parent
 OUT = ENGINE_DIR.parent / "evidence-log" / "AI_Evidence_Log.md"
+OUT_CSV = ENGINE_DIR.parent / "evidence-log" / "AI_Evidence_Log.csv"
 ENGINE_URL = "https://grow-sip-engine-nlems472oc7cfzz4ripgxr.streamlit.app"
 REPO_URL = "https://github.com/parasharakk-png/grow-sip-engine"
 UNSTATED_TRIGGERS = ("none_obvious", "other", "unknown")
@@ -293,7 +298,37 @@ def build() -> str:
     return "\n".join(parts) + "\n"
 
 
+def md_to_sheet_rows(md: str) -> list[list[str]]:
+    """One Google Sheet: headings and prose in column A, tables as real columns."""
+    rows: list[list[str]] = []
+    for line in md.splitlines():
+        raw = line.rstrip()
+        if not raw:
+            rows.append([])
+            continue
+        if re.match(r"^\|[\s\-:|]+\|$", raw):
+            continue
+        if raw.startswith("|"):
+            cells = [c.strip().replace("**", "") for c in raw.strip().strip("|").split("|")]
+            rows.append(cells)
+            continue
+        text = raw.replace("**", "")
+        text = re.sub(r"^#+\s*", "", text)
+        rows.append([text])
+    width = max((len(r) for r in rows), default=1)
+    return [r + [""] * (width - len(r)) for r in rows]
+
+
+def write_csv(md: str, path: Path = OUT_CSV) -> None:
+    rows = md_to_sheet_rows(md)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        csv.writer(f, lineterminator="\n").writerows(rows)
+
+
 if __name__ == "__main__":
     OUT.parent.mkdir(exist_ok=True)
-    OUT.write_text(build(), encoding="utf-8")
+    md = build()
+    OUT.write_text(md, encoding="utf-8")
+    write_csv(md)
     print(f"wrote {OUT}")
+    print(f"wrote {OUT_CSV}")

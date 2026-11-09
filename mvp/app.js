@@ -473,20 +473,10 @@ function sipDetails() {
 /* ---------- The "before you cancel" sheet ---------- */
 
 function answerCard(a) {
-  const badge = {
-    loading: "Checking…",
-    declined: "Declined",
-    fallback: `Reply held back (${a.why}) · standard answer shown`,
-    unavailable: "AI unavailable · standard answer shown",
-    out_of_scope: "Outside this screen · pointing to Groww Help",
-    unsure: "Not sure what you meant · showing the basics",
-    passed: a.source === "ai" ? "AI answer · checked: numbers match your SIP · no advice" : "Checked: numbers match your SIP · no advice",
-  }[a.check];
   const tone = a.check === "declined" || a.check === "loading" ? "border-white/20" : "border-groww/40";
   return `<article class="mt-3 rounded-2xl border ${tone} p-4">
-    <p class="text-[11px] ${a.check === "passed" ? "text-groww" : "text-white/60"}">${badge}</p>
-    <h3 class="font-semibold mt-1 text-[15px]">${a.title}</h3>
-    <p class="text-[13px] text-white/80 mt-2 leading-relaxed">${a.body}</p>
+    <h3 class="font-semibold text-[15px]">${a.title}</h3>
+    ${a.body ? `<p class="text-[13px] text-white/80 mt-2 leading-relaxed">${a.body}</p>` : ""}
   </article>`;
 }
 

@@ -75,8 +75,11 @@ async function callLLM(system, user, env = process.env) {
       system, messages: [{ role: "user", content: user }] }),
     signal: AbortSignal.timeout(Number(env.LLM_TIMEOUT_MS || 25000)),
   });
-  if (!res.ok) throw new Error(`model HTTP ${res.status}`);
-  const body = await res.json();
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = (body.error && body.error.message) || `model HTTP ${res.status}`;
+    throw new Error(String(msg).slice(0, 120));
+  }
   return (body.content || []).filter((c) => c.type === "text").map((c) => c.text).join("\n");
 }
 

@@ -64,7 +64,7 @@ Posts = posts about stopping or lapsing (**447** in all; **68** from first-time 
 | 2.1 Systems or gateway down | 8 posts (0 first-time) | Not seen | Real but small |
 | 2.2 Not enough balance | 9 posts (1 first-time) | P1: one skipped instalment, SIP continued | Real, rarely ends a SIP |
 | 2.3 Autopay on an old account | 0 posts (3 payment posts mention it) | P2 and P5 changed account; no failure | Not seen; needs Groww's bank-return data |
-| *Missing from my payment list* | Biggest groups: failure with no reason given (29), money debited but units not allotted (17), first SIP never went live (12) | Two people had a failure; both found it only by opening the app; neither stopped over it | The real gap is that they aren't told why it failed |
+| *Missing from my payment list* | Across all 121 payment stop posts (all investors): failure with no reason given (32), money debited but units not allotted (20), first SIP never went live (13). Among the 19 first-timer ones: 7 never went live, 12 a later debit failed | Two people had a failure; both found it only by opening the app; neither stopped over it | The real gap is that they aren't told why it failed |
 
 Two reasons I hadn't listed came up in interviews: money redirected outside SIPs (FD / RD, lump sum, a gold scheme: 3 of 5), and doubt settled by someone they trust rather than by data.
 
@@ -81,7 +81,7 @@ On **68** first-timer posts about a SIP ending, the two problems come out a tie.
 | **1 · The stop decision** (pause, skip, reduce, cancel, switch) | **29.4%** | **+2.3 pp** | **5 of 5** | Built the MVP |
 | **2 · Failed payments** (first SIP never live, or a later debit fails) | **27.9%** | **+2.9 pp** | **0 of 5** (2 had a failure, none stopped over it) | Ops track |
 
-Uplift = 40% of first SIPs gone by month 12 × share of stop posts × how fixable that cause looks × 30% can come back. Change those two assumptions in the engine sidebar and the bars move. The other ~34% of first-timer stop posts had no clear cause.
+Uplift = 40% of first SIPs gone by month 12 × share of stop posts × reach (my estimate of how much of each cause a fix can touch, 0.5–0.9 per cause) × 30% can come back, summed per cause. Without reach the totals would be +3.5 pp (stop decision) and +3.4 pp (failed payments). Change the lapse and recovery assumptions in the engine sidebar and the bars move. The other ~34% of first-timer stop posts had no clear cause.
 
 The engine's "If Groww fixed one thing" tab ranks six product areas the same way. Payments and the stop screen sit at the top; I still needed people, because posts can't tell you which moment actually ends a first SIP.
 

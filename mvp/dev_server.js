@@ -26,8 +26,9 @@ http.createServer(async (req, res) => {
       res.writeHead(parsed ? 200 : 502, { "content-type": "application/json" });
       res.end(JSON.stringify(parsed || { error: "unusable model reply" }));
     } catch (e) {
-      res.writeHead(502, { "content-type": "application/json" });
-      res.end(JSON.stringify({ error: "model call failed" }));
+      const detail = [e.message, e.cause && e.cause.message].filter(Boolean).join(": ");
+      res.writeHead(String(e.message).includes("not configured") ? 503 : 502, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: String(detail || e).slice(0, 160) }));
     }
     console.log(`explain ${res.statusCode}`);
     return;
